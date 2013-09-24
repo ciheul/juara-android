@@ -36,34 +36,41 @@ import android.os.Bundle;
 import android.util.Log;
 import android.view.Menu;
 import android.view.View;
-import android.view.Window;
-import android.view.WindowManager;
 import android.widget.Button;
+import android.widget.ImageView;
 import android.widget.Toast;
 
 import com.ciheul.bigmaps.MapsApplication;
 import com.ciheul.bigmaps.R;
 
-public class MapActivity extends Activity {
+public class MapActivity extends Activity implements MapEventsReceiver {
 
+    private MapsApplication app;
     private ResourceProxy resourceProxy;
     private MapView mapView;
     private MapController mapController;
+
+    /** Overlay */
     // private DirectedLocationOverlay currentUser;
     private ItemizedOverlay<OverlayItem> currentUserItemizedOverlay;
-    private MapsApplication app;
-    private MapEventsReceiver mapEventsReceiver;
+    // private ScaleBarOverlay scaleBarOverlay;
+    // private MinimapOverlay miniMapOverlay;
 
     private Button btnTrackCurrentUser;
+    private ImageView imgZoomIn;
+    private ImageView imgZoomOut;
+    // private EditText edtSearch;
 
+    /** Map Color */
     private int colorCounter = 0;
-    // private String[] MapColor = { "#762A83", "#9970AB", "#C2A5CF", "#E7D4E8", "#D9F0D3", "#A6DBA0"};
-
     public String[] MapColor = { "#762A83", "#9970AB", "#C2A5CF", "#E7D4E8", "#D9F0D3", "#A6DBA0", "#5AAE61", "#1B7837" };
 
     private HashMap<String, ArrayList<ArrayList<GeoPoint>>> hashMap;
     private String prevRegionTapped;
     private ArrayList<PathOverlay> prevPathOverlay;
+
+    private SharedPreferences prefs;
+    private SharedPreferences.Editor prefsEditor;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -72,19 +79,22 @@ public class MapActivity extends Activity {
         Log.d("BigMaps", "MapsActivity: onCreate");
 
         // remove title bar
-        requestWindowFeature(Window.FEATURE_NO_TITLE);
-        getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        // requestWindowFeature(Window.FEATURE_NO_TITLE);
+        // getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
 
         setContentView(R.layout.activity_map);
 
         app = (MapsApplication) getApplication();
+
+        prefs = getPreferences(MODE_PRIVATE);
+        prefsEditor = prefs.edit();
 
         resourceProxy = new DefaultResourceProxyImpl(getApplicationContext());
 
         mapView = (MapView) findViewById(R.id.mapview);
         mapView.setTileSource(TileSourceFactory.MAPQUESTOSM);
         mapView.setMultiTouchControls(true);
-        mapView.setBuiltInZoomControls(true);
+        mapView.setBuiltInZoomControls(false);
 
         mapController = (MapController) mapView.getController();
         mapController.setZoom(8);
@@ -94,95 +104,71 @@ public class MapActivity extends Activity {
             @Override
             public void onClick(View view) {
                 mapView.getController().animateTo(new GeoPoint(app.getCurrentLatitude(), app.getCurrentLongitude()));
+
+                for (Map.Entry<String, ArrayList<HashMap<String, ArrayList<Double>>>> entry : app.structuredMap
+                        .entrySet()) {
+                    new FastChoroplethTask().execute(entry.getValue());
+                }
+
+                prefsEditor.putBoolean("choroplethMap", true).commit();
+            }
+        });
+
+        // hashMap = new HashMap<String, ArrayList<ArrayList<GeoPoint>>>();
+        // String geoJson = loadJsonFromAsset("jabar-kabupaten.json");
+        // addChoroplethFromGeoJSON(geoJson);
+
+        prevPathOverlay = new ArrayList<PathOverlay>();
+
+        MapEventsOverlay eventsOverlay = new MapEventsOverlay(this, this);
+        mapView.getOverlays().add(eventsOverlay);
+
+        // scaleBarOverlay = new ScaleBarOverlay(this, resourceProxy);
+        // // scaleBarOverlay.setScaleBarOffset(getResources().getDisplayMetrics().widthPixels / 2
+        // // - getResources().getDisplayMetrics().xdpi / 2, 10);
+        // mapView.getOverlays().add(scaleBarOverlay);
+        // scaleBarOverlay.setScaleBarOffset(10, 150);
+
+        // miniMapOverlay = new MinimapOverlay(this, mapView.getTileRequestCompleteHandler());
+        // miniMapOverlay.setEnabled(true);
+        // mapView.getOverlays().add(miniMapOverlay);
+
+        // edtSearch = (EditText) findViewById(R.id.edtSearch);
+
+        imgZoomIn = (ImageView) findViewById(R.id.imgZoomIn);
+        imgZoomIn.setImageResource(R.drawable.zoom_in);
+        imgZoomIn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                mapController.zoomIn();
+            }
+        });
+
+        imgZoomOut = (ImageView) findViewById(R.id.imgZoomOut);
+        imgZoomOut.setImageResource(R.drawable.zoom_out);
+        imgZoomOut.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                mapController.zoomOut();
             }
         });
 
         mapView.invalidate();
-
-        hashMap = new HashMap<String, ArrayList<ArrayList<GeoPoint>>>();
-        String geoJson = loadJsonFromAsset("jabar-kabupaten.json");
-        addChoroplethFromGeoJSON(geoJson);
-
-        prevPathOverlay = new ArrayList<PathOverlay>();
-
-        mapEventsReceiver = new MapEventsReceiver() {
-            @Override
-            public boolean singleTapUpHelper(IGeoPoint tap) {
-                String result = null;
-                // loop 1: region
-                for (Map.Entry<String, ArrayList<ArrayList<GeoPoint>>> entry : hashMap.entrySet()) {
-                    ArrayList<ArrayList<GeoPoint>> borderInOutGeoPoint = entry.getValue();
-                    // loop 2: border in and out
-                    for (int i = 0; i < borderInOutGeoPoint.size(); i++) {
-                        ArrayList<GeoPoint> borderGeoPoint = borderInOutGeoPoint.get(i);
-                        if (isPointInPolygon(tap, borderGeoPoint)) {
-                            result = entry.getKey();
-                            break;
-                        }
-                    }
-                }
-
-                if (result != null) {
-                    Log.d("BigMaps", "tap: " + result);
-                    Toast.makeText(getApplicationContext(), result, Toast.LENGTH_SHORT).show();
-
-                    Paint stroke = new Paint();
-                    stroke.setStyle(Paint.Style.STROKE);
-                    stroke.setColor(Color.parseColor("#666666"));
-                    stroke.setStrokeWidth(3);
-
-                    if (prevRegionTapped != null) {
-                        for (int i = 0; i < mapView.getOverlayManager().size(); i++) {
-                            // Log.d("BigMaps", mapView.getOverlays());
-                        }
-                        for (int i = 0; i < prevPathOverlay.size(); i++) {
-                            Log.d("BigMaps", "prev: " + String.valueOf(prevPathOverlay.get(i)));
-                            mapView.getOverlays().remove(prevPathOverlay.get(i));
-                        }
-                        Log.d("BigMaps", "size: " + String.valueOf(mapView.getOverlays().size()));
-                        prevPathOverlay.clear();
-
-                    }
-
-                    ArrayList<ArrayList<GeoPoint>> borderInOutGeoPoint = hashMap.get(result);
-                    for (int i = 0; i < borderInOutGeoPoint.size(); i++) {
-                        PathOverlay border = new PathOverlay(Color.RED, getApplicationContext());
-                        border.setPaint(stroke);
-
-                        ArrayList<GeoPoint> borderGeoPoint = borderInOutGeoPoint.get(i);
-                        for (int j = 0; j < borderGeoPoint.size(); j++) {
-                            border.addPoint(borderGeoPoint.get(j));
-                        }
-                        mapView.getOverlays().add(border);
-//                        int index = mapView.getOverlays().size();
-//                        Log.d("BigMaps", "curr: " + String.valueOf(index));
-                        prevPathOverlay.add(border);
-                        mapView.invalidate();
-                    }
-
-                    prevRegionTapped = result;
-                }
-
-                return false;
-            }
-
-            @Override
-            public boolean longPressHelper(IGeoPoint p) {
-                return false;
-            }
-        };
-
-        MapEventsOverlay eventsOverlay = new MapEventsOverlay(this, mapEventsReceiver);
-        mapView.getOverlays().add(eventsOverlay);
     }
 
     @Override
     protected void onResume() {
         super.onResume();
         Log.d("BigMaps", "MapsActivity: onResume");
-        addUserMarker();
 
+        addUserMarker();
         restorePreviousCenterState();
+
+        if (prefs.getBoolean("choroplethMap", false) == true) {
+            for (Map.Entry<String, ArrayList<HashMap<String, ArrayList<Double>>>> entry : app.structuredMap.entrySet()) {
+                new FastChoroplethTask().execute(entry.getValue());
+            }
+        }
     }
 
     @Override
@@ -211,6 +197,130 @@ public class MapActivity extends Activity {
         return true;
     }
 
+    /************************/
+    /** MAPEVENTS RECEIVER **/
+    /************************/
+    @Override
+    public boolean singleTapUpHelper(IGeoPoint tap) {
+        if (app.structuredMap != null) {
+            String regionTapped = null;
+
+            for (Map.Entry<String, ArrayList<HashMap<String, ArrayList<Double>>>> entry : app.structuredMap.entrySet()) {
+                ArrayList<Double> lonCoordinates = new ArrayList<Double>();
+                ArrayList<Double> latCoordinates = new ArrayList<Double>();
+
+                ArrayList<HashMap<String, ArrayList<Double>>> value = entry.getValue();
+                for (int i = 0; i < value.size(); i++) {
+                    HashMap<String, ArrayList<Double>> lonOrLatCoordinates = value.get(i);
+                    lonCoordinates.addAll(lonOrLatCoordinates.get("lon"));
+                    latCoordinates.addAll(lonOrLatCoordinates.get("lat"));
+                }
+
+                if (isPointInPolygon(tap, lonCoordinates, latCoordinates)) {
+                    regionTapped = entry.getKey();
+                    break;
+                }
+
+                lonCoordinates.clear();
+                latCoordinates.clear();
+            }
+
+            if (regionTapped != null) {
+                Log.d("BigMaps", regionTapped);
+
+                if (prevRegionTapped != null) {
+                    for (int i = 0; i < prevPathOverlay.size(); i++) {
+                        mapView.getOverlays().remove(prevPathOverlay.get(i));
+                    }
+                    prevPathOverlay.clear();
+                }
+
+                Paint stroke = new Paint();
+                stroke.setStyle(Paint.Style.STROKE);
+                stroke.setColor(Color.parseColor("#666666"));
+                stroke.setStrokeWidth(3);
+
+                ArrayList<HashMap<String, ArrayList<Double>>> borders = app.structuredMap.get(regionTapped);
+                for (int i = 0; i < borders.size(); i++) {
+                    PathOverlay borderOverlay = new PathOverlay(Color.RED, this);
+                    borderOverlay.setPaint(stroke);
+
+                    HashMap<String, ArrayList<Double>> lonOrLatCoordinates = borders.get(i);
+                    ArrayList<Double> lonCoordinates = lonOrLatCoordinates.get("lon");
+                    ArrayList<Double> latCoordinates = lonOrLatCoordinates.get("lat");
+                    int size = lonCoordinates.size();
+
+                    for (int j = 0; j < size; j++) {
+                        borderOverlay.addPoint(new GeoPoint(latCoordinates.get(j), lonCoordinates.get(j)));
+                    }
+
+                    mapView.getOverlays().add(borderOverlay);
+                    mapView.invalidate();
+
+                    // retain the border information
+                    prevPathOverlay.add(borderOverlay);
+                }
+                prevRegionTapped = regionTapped;
+            }
+        }
+
+        return false;
+    }
+
+    @Override
+    public boolean longPressHelper(IGeoPoint tap) {
+        // loop 1: region
+        if (hashMap != null) {
+            String result = null;
+            for (Map.Entry<String, ArrayList<ArrayList<GeoPoint>>> entry : hashMap.entrySet()) {
+                ArrayList<ArrayList<GeoPoint>> borderInOutGeoPoint = entry.getValue();
+                // loop 2: border in and out
+                for (int i = 0; i < borderInOutGeoPoint.size(); i++) {
+                    ArrayList<GeoPoint> borderGeoPoint = borderInOutGeoPoint.get(i);
+                    if (isPointInPolygon(tap, borderGeoPoint)) {
+                        result = entry.getKey();
+                        break;
+                    }
+                }
+            }
+
+            if (result != null) {
+                // Log.d("BigMaps", "tap: " + result);
+                Toast.makeText(getApplicationContext(), result, Toast.LENGTH_SHORT).show();
+
+                Paint stroke = new Paint();
+                stroke.setStyle(Paint.Style.STROKE);
+                stroke.setColor(Color.parseColor("#666666"));
+                stroke.setStrokeWidth(3);
+
+                if (prevRegionTapped != null) {
+                    for (int i = 0; i < prevPathOverlay.size(); i++) {
+                        mapView.getOverlays().remove(prevPathOverlay.get(i));
+                    }
+                    prevPathOverlay.clear();
+                }
+
+                ArrayList<ArrayList<GeoPoint>> borderInOutGeoPoint = hashMap.get(result);
+                for (int i = 0; i < borderInOutGeoPoint.size(); i++) {
+                    PathOverlay border = new PathOverlay(Color.RED, getApplicationContext());
+                    border.setPaint(stroke);
+
+                    ArrayList<GeoPoint> borderGeoPoint = borderInOutGeoPoint.get(i);
+                    for (int j = 0; j < borderGeoPoint.size(); j++) {
+                        border.addPoint(borderGeoPoint.get(j));
+                    }
+                    mapView.getOverlays().add(border);
+                    prevPathOverlay.add(border);
+                    mapView.invalidate();
+                }
+                prevRegionTapped = result;
+            }
+        }
+        return false;
+    }
+
+    /*******************/
+
     private void addUserMarker() {
         // set user's current location and its marker's picture
         OverlayItem currentUserOverlay = new OverlayItem("Current User", "", new GeoPoint(app.getCurrentLatitude(),
@@ -237,6 +347,34 @@ public class MapActivity extends Activity {
         mapView.getOverlays().add(currentUserItemizedOverlay);
     }
 
+    private void restorePreviousCenterState() {
+        SharedPreferences prefs = getPreferences(MODE_PRIVATE);
+        SharedPreferences.Editor editor = prefs.edit();
+
+        float lon = prefs.getFloat("prevLongitude", (float) app.getCurrentLongitude());
+        float lat = prefs.getFloat("prevLatitude", (float) app.getCurrentLatitude());
+
+        mapController.setCenter(new GeoPoint(lat, lon));
+        mapController.setZoom(prefs.getInt("zoomLevel", 8));
+        editor.remove("prevLongitude");
+        editor.remove("prevLatitude");
+        editor.remove("zoomLevel");
+        editor.commit();
+    }
+
+    private void savePreviousCenterState() {
+        SharedPreferences prefs = getPreferences(MODE_PRIVATE);
+        SharedPreferences.Editor editor = prefs.edit();
+        editor.putFloat("prevLongitude", (float) (mapView.getMapCenter().getLongitudeE6() / 1E6));
+        editor.putFloat("prevLatitude", (float) (mapView.getMapCenter().getLatitudeE6() / 1E6));
+        editor.putInt("zoomLevel", mapView.getProjection().getZoomLevel());
+        editor.commit();
+    }
+
+    /*********************/
+    /** UTILITY METHODS **/
+    /*********************/
+
     private String loadJsonFromAsset(String filename) {
         String json = null;
         try {
@@ -254,11 +392,15 @@ public class MapActivity extends Activity {
         return json;
     }
 
+    /************************/
+    /** CHOROPLETH METHODS **/
+    /************************/
+
     private void addChoroplethFromGeoJSON(String jsonString) {
         try {
             JSONObject jsonObject = new JSONObject(jsonString);
             JSONArray regions = jsonObject.getJSONArray("features");
-            Log.d("BigMaps", String.valueOf(regions.length()));
+            // Log.d("BigMaps", String.valueOf(regions.length()));
 
             // loop 1: region
             for (int i = 0; i < regions.length(); i++) {
@@ -357,34 +499,116 @@ public class MapActivity extends Activity {
             // update UI asynchronously
             mapView.invalidate();
         }
-
     }
 
-    private void restorePreviousCenterState() {
-        SharedPreferences prefs = getPreferences(MODE_PRIVATE);
-        SharedPreferences.Editor editor = prefs.edit();
+    private class FastChoroplethTask extends AsyncTask<ArrayList, Void, Void> {
+        @Override
+        protected Void doInBackground(ArrayList... arg) {
+            ArrayList<HashMap<String, ArrayList<Double>>> borders = arg[0];
 
-        float lon = prefs.getFloat("prevLongitude", (float) app.getCurrentLongitude());
-        float lat = prefs.getFloat("prevLatitude", (float) app.getCurrentLatitude());
+            PathOverlay regionOverlay = new PathOverlay(Color.RED, getApplicationContext());
 
-        mapController.setCenter(new GeoPoint(lat, lon));
-        editor.remove("prevLongitude");
-        editor.remove("prevLatitude");
-        editor.commit();
-    }
+            Paint fillRegion = new Paint();
+            fillRegion.setStyle(Paint.Style.FILL);
+            fillRegion.setColor(Color.parseColor(MapColor[colorCounter % MapColor.length]));
+            regionOverlay.setPaint(fillRegion);
 
-    private void savePreviousCenterState() {
-        SharedPreferences prefs = getPreferences(MODE_PRIVATE);
-        SharedPreferences.Editor editor = prefs.edit();
-        editor.putFloat("prevLongitude", (float) (mapView.getMapCenter().getLongitudeE6() / 1E6));
-        editor.putFloat("prevLatitude", (float) (mapView.getMapCenter().getLatitudeE6() / 1E6));
-        editor.commit();
+            Paint stroke = new Paint();
+            stroke.setStyle(Paint.Style.STROKE);
+            stroke.setColor(Color.parseColor("#666666"));
+            stroke.setStrokeWidth(2);
+
+            // iterate all borders
+            for (int i = 0; i < borders.size(); i++) {
+                HashMap<String, ArrayList<Double>> lonOrLatCoordinates = borders.get(i);
+
+                PathOverlay borderOverlay = new PathOverlay(Color.RED, getApplicationContext());
+                borderOverlay.setPaint(stroke);
+
+                ArrayList<Double> lonCoordinates = lonOrLatCoordinates.get("lon");
+                ArrayList<Double> latCoordinates = lonOrLatCoordinates.get("lat");
+                int size = lonCoordinates.size();
+
+                for (int j = 0; j < size; j++) {
+                    GeoPoint p = new GeoPoint(latCoordinates.get(j), lonCoordinates.get(j));
+                    borderOverlay.addPoint(p);
+                    regionOverlay.addPoint(p);
+                }
+
+                mapView.getOverlays().add(borderOverlay);
+            }
+
+            mapView.getOverlays().add(regionOverlay);
+            colorCounter += 1;
+
+            return null;
+        }
+
+        @Override
+        protected void onPostExecute(Void result) {
+            // update UI asynchronously
+            mapView.invalidate();
+        }
+
     }
 
     private boolean isPointInPolygon(IGeoPoint tap, ArrayList<GeoPoint> vertices) {
         int intersectCount = 0;
         for (int j = 0; j < vertices.size() - 1; j++) {
             if (rayCastIntersect(tap, vertices.get(j), vertices.get(j + 1))) {
+                intersectCount++;
+            }
+        }
+        return ((intersectCount % 2) == 1); // odd = inside, even = outside;
+    }
+
+    private boolean isPointInPolygon(IGeoPoint tap, final ArrayList<Double> lonCoordinates,
+            final ArrayList<Double> latCoordinates) {
+
+        // HashMap<Boolean, Integer> result = new HashMap<Boolean, Integer>();
+        // result.put(true, 0);
+        // result.put(false, 0);
+        //
+        // final ArrayList<IGeoPoint> testTap = new ArrayList<IGeoPoint>();
+        //
+        //
+        // testTap.add(new GeoPoint(tap0.getLatitudeE6() / 1E6 - 0.005, tap0.getLongitudeE6() / 1E6 - 0.005));
+        // testTap.add(new GeoPoint(tap0.getLatitudeE6() / 1E6 - 0.005, tap0.getLongitudeE6() / 1E6));
+        // testTap.add(new GeoPoint(tap0.getLatitudeE6() / 1E6 - 0.005, tap0.getLongitudeE6() / 1E6 + 0.005));
+        //
+        // testTap.add(new GeoPoint(tap0.getLatitudeE6() / 1E6, tap0.getLongitudeE6() / 1E6 - 0.005));
+        // testTap.add(tap0);
+        // testTap.add(new GeoPoint(tap0.getLatitudeE6() / 1E6, tap0.getLongitudeE6() / 1E6 + 0.005));
+        //
+        // testTap.add(new GeoPoint(tap0.getLatitudeE6() / 1E6 + 0.005, tap0.getLongitudeE6() / 1E6 - 0.005));
+        // testTap.add(new GeoPoint(tap0.getLatitudeE6() / 1E6 + 0.005, tap0.getLongitudeE6() / 1E6));
+        // testTap.add(new GeoPoint(tap0.getLatitudeE6() / 1E6 + 0.005, tap0.getLongitudeE6() / 1E6 + 0.005));
+
+        // for (int i = 0; i < testTap.size(); i++) {
+        // int intersectCount = 0;
+        //
+        // for (int j = 0; j < lonCoordinates.size() - 1; j++) {
+        // if (rayCastIntersect(testTap.get(i), new GeoPoint(latCoordinates.get(j), lonCoordinates.get(j)),
+        // new GeoPoint(latCoordinates.get(j + 1), lonCoordinates.get(j + 1)))) {
+        // intersectCount++;
+        // }
+        // }
+        //
+        // if (((intersectCount % 2) == 1) == true) {
+        // result.put(true, result.get(true) + 1);
+        // } else {
+        // result.put(false, result.get(false) + 1);
+        // }
+        // }
+
+        // Log.d("BigMaps", result.toString());
+        // Log.d("BigMaps", " ");
+
+        int intersectCount = 0;
+
+        for (int j = 0; j < lonCoordinates.size() - 1; j++) {
+            if (rayCastIntersect(tap, new GeoPoint(latCoordinates.get(j), lonCoordinates.get(j)), new GeoPoint(
+                    latCoordinates.get(j + 1), lonCoordinates.get(j + 1)))) {
                 intersectCount++;
             }
         }
@@ -411,4 +635,5 @@ public class MapActivity extends Activity {
 
         return x > pX;
     }
+
 }

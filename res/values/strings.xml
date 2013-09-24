@@ -4,5 +4,7 @@
     <string name="app_name">BigMaps</string>
     <string name="action_settings">Settings</string>
     <string name="hello_world">Hello world!</string>
+    <string name="ZoomIn">Zoom In</string>
+    <string name="ZoomOut">Zoom Out</string>
 
 </resources>

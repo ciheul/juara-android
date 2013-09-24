@@ -1,6 +1,5 @@
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
-    xmlns:sat="http://schemas.android.com/apk/res/com.ciheul.bigmaps"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:paddingBottom="@dimen/activity_vertical_margin"
@@ -14,26 +13,39 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!-- 
-    <com.ciheul.bigmaps.SatelliteMenu
-        android:id="@+id/menu"
-        android:layout_width="wrap_content"
+    <!--
+    <EditText
+        android:id="@+id/edtSearch"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:inputType="textAutoComplete"
+        android:layout_alignParentTop="true" />
+    -->
+
+    <ImageView
+        android:id="@+id/imgZoomIn"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
         android:layout_alignParentBottom="true"
         android:layout_alignParentLeft="true"
-        android:layout_gravity="bottom|left"
-        android:layout_margin="8dp"
-        sat:closeOnClick="true"
-        sat:expandDuration="500"
-        sat:satelliteDistance="140dp"
-        sat:totalSpacingDegree="90"
-         /> -->
-    <!-- sat:mainImage="@drawable/ic_launcher" -->
+        android:layout_marginBottom="56dp"
+        android:layout_marginLeft="8dp"
+        android:contentDescription="@string/ZoomIn" />
+
+    <ImageView
+        android:id="@+id/imgZoomOut"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_alignParentBottom="true"
+        android:layout_alignParentLeft="true"
+        android:layout_marginBottom="8dp"
+        android:layout_marginLeft="8dp"
+        android:contentDescription="@string/ZoomOut" />
 
     <Button
         android:id="@+id/buttonTrackingMode"
-        android:layout_width="35dp"
-        android:layout_height="35dp"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
         android:layout_alignParentBottom="true"
         android:layout_alignParentRight="true"
         android:layout_margin="8dp"
