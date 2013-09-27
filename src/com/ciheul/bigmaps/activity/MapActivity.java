@@ -1,17 +1,22 @@
+/*
+ * Copyright 2013 Ciheul Engineering
+ */
+
 // Links:
 // https://code.google.com/p/osmdroid/issues/detail?id=392
 
 package com.ciheul.bigmaps.activity;
 
-import java.io.IOException;
-import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
-import org.json.JSONArray;
-import org.json.JSONException;
-import org.json.JSONObject;
 import org.osmdroid.DefaultResourceProxyImpl;
 import org.osmdroid.ResourceProxy;
 import org.osmdroid.api.IGeoPoint;
@@ -38,7 +43,6 @@ import android.view.Menu;
 import android.view.View;
 import android.widget.Button;
 import android.widget.ImageView;
-import android.widget.Toast;
 
 import com.ciheul.bigmaps.MapsApplication;
 import com.ciheul.bigmaps.R;
@@ -65,7 +69,6 @@ public class MapActivity extends Activity implements MapEventsReceiver {
     private int colorCounter = 0;
     public String[] MapColor = { "#762A83", "#9970AB", "#C2A5CF", "#E7D4E8", "#D9F0D3", "#A6DBA0", "#5AAE61", "#1B7837" };
 
-    private HashMap<String, ArrayList<ArrayList<GeoPoint>>> hashMap;
     private String prevRegionTapped;
     private ArrayList<PathOverlay> prevPathOverlay;
 
@@ -200,34 +203,111 @@ public class MapActivity extends Activity implements MapEventsReceiver {
     /************************/
     /** MAPEVENTS RECEIVER **/
     /************************/
+    private class IsPointInPolygonCallable implements Callable<Boolean> {
+
+        private ArrayList<Double> lonCoordinates;
+        private ArrayList<Double> latCoordinates;
+        private IGeoPoint tap;
+        private String regionName;
+
+        private IsPointInPolygonCallable(String regionName, IGeoPoint tap, ArrayList<Double> lonCoordinates,
+                ArrayList<Double> latCoordinates) {
+            this.regionName = regionName;
+            this.tap = tap;
+            this.lonCoordinates = lonCoordinates;
+            this.latCoordinates = latCoordinates;
+        }
+
+        @Override
+        public Boolean call() throws Exception {
+            // long threadId = Thread.currentThread().getId() % NUM_THREADS + 1;
+
+            if (isPointInPolygon(tap, lonCoordinates, latCoordinates)) {
+                // Log.d("BigMaps", "threadId: " + String.valueOf(threadId) + " " + regionName + " => true");
+                return true;
+            }
+
+            // Log.d("BigMaps", "threadId: " + String.valueOf(threadId) + " " + regionName + " =>false");
+            return false;
+        }
+    }
+
+    private final static int NUM_THREADS = 9;
+
     @Override
     public boolean singleTapUpHelper(IGeoPoint tap) {
         if (app.structuredMap != null) {
             String regionTapped = null;
 
+            ExecutorService pool = Executors.newFixedThreadPool(NUM_THREADS);
+            HashMap<String, Future<Boolean>> set = new HashMap<String, Future<Boolean>>();
+
+            long start = System.currentTimeMillis();
+
+            // prepare
             for (Map.Entry<String, ArrayList<HashMap<String, ArrayList<Double>>>> entry : app.structuredMap.entrySet()) {
-                ArrayList<Double> lonCoordinates = new ArrayList<Double>();
-                ArrayList<Double> latCoordinates = new ArrayList<Double>();
-
-                ArrayList<HashMap<String, ArrayList<Double>>> value = entry.getValue();
-                for (int i = 0; i < value.size(); i++) {
-                    HashMap<String, ArrayList<Double>> lonOrLatCoordinates = value.get(i);
-                    lonCoordinates.addAll(lonOrLatCoordinates.get("lon"));
-                    latCoordinates.addAll(lonOrLatCoordinates.get("lat"));
+                Callable<Boolean> callable = null;
+                int size = entry.getValue().size();
+                if (size == 1) {
+                    callable = new IsPointInPolygonCallable(entry.getKey(), tap, entry.getValue().get(0).get("lon"),
+                            entry.getValue().get(0).get("lat"));
+                } else {
+                    ArrayList<Double> lonCoordinates = new ArrayList<Double>();
+                    ArrayList<Double> latCoordinates = new ArrayList<Double>();
+                    for (int i = 0; i < size; i++) {
+                        lonCoordinates.addAll(entry.getValue().get(i).get("lon"));
+                        latCoordinates.addAll(entry.getValue().get(i).get("lat"));
+                    }
+                    callable = new IsPointInPolygonCallable(entry.getKey(), tap, lonCoordinates, latCoordinates);
                 }
 
-                if (isPointInPolygon(tap, lonCoordinates, latCoordinates)) {
-                    regionTapped = entry.getKey();
-                    break;
-                }
+                Future<Boolean> future = pool.submit(callable);
+                set.put(entry.getKey(), future);
+            }
 
-                lonCoordinates.clear();
-                latCoordinates.clear();
+            long premiddle = System.currentTimeMillis();
+            long duration0 = premiddle - start;
+
+            if (app.DEBUG) {
+                Log.d("BigMaps", "duration0 = " + String.valueOf(duration0));
+            }
+
+            for (Map.Entry<String, Future<Boolean>> entry : set.entrySet()) {
+                try {
+                    if (entry.getValue().get() == true) {
+                        // the main actor!
+                        regionTapped = entry.getKey();
+
+                        pool.shutdown(); // Disable new threads from being submitted
+                        pool.shutdownNow(); // Force to stop other threads running
+
+                        // Wait a while for existing tasks to terminate
+                        if (!pool.awaitTermination(0, TimeUnit.MICROSECONDS)) {
+                            pool.shutdownNow(); // Cancel currently executing tasks
+                            // Wait a while for tasks to respond to being cancelled
+                            if (!pool.awaitTermination(0, TimeUnit.MICROSECONDS)) {
+                                System.err.println("Pool did not terminate");
+                            }
+                        }
+                        break;
+                    }
+                } catch (InterruptedException e) {
+                    pool.shutdownNow();
+                    // Preserve interrupt status
+                    Thread.currentThread().interrupt();
+                } catch (ExecutionException e) {
+                    e.printStackTrace();
+                }
+            }
+
+            long middle = System.currentTimeMillis();
+            long duration1 = middle - premiddle;
+
+            if (app.DEBUG) {
+                Log.d("BigMaps", "duration1 = " + String.valueOf(duration1));
             }
 
             if (regionTapped != null) {
-                Log.d("BigMaps", regionTapped);
-
                 if (prevRegionTapped != null) {
                     for (int i = 0; i < prevPathOverlay.size(); i++) {
                         mapView.getOverlays().remove(prevPathOverlay.get(i));
@@ -261,6 +341,19 @@ public class MapActivity extends Activity implements MapEventsReceiver {
                     prevPathOverlay.add(borderOverlay);
                 }
                 prevRegionTapped = regionTapped;
+
+                long end = System.currentTimeMillis();
+                long duration2 = end - middle;
+                long total = end - start;
+
+                if (app.DEBUG) {
+                    Log.d("BigMaps", "duration2 = " + String.valueOf(duration2));
+                    Log.d("BigMaps", "-------------------------");
+                    Log.d("BigMaps", "total     = " + String.valueOf(total));
+
+                    Log.d("BigMaps", regionTapped);
+                    Log.d("BigMaps", " ");
+                }
             }
         }
 
@@ -269,53 +362,6 @@ public class MapActivity extends Activity implements MapEventsReceiver {
 
     @Override
     public boolean longPressHelper(IGeoPoint tap) {
-        // loop 1: region
-        if (hashMap != null) {
-            String result = null;
-            for (Map.Entry<String, ArrayList<ArrayList<GeoPoint>>> entry : hashMap.entrySet()) {
-                ArrayList<ArrayList<GeoPoint>> borderInOutGeoPoint = entry.getValue();
-                // loop 2: border in and out
-                for (int i = 0; i < borderInOutGeoPoint.size(); i++) {
-                    ArrayList<GeoPoint> borderGeoPoint = borderInOutGeoPoint.get(i);
-                    if (isPointInPolygon(tap, borderGeoPoint)) {
-                        result = entry.getKey();
-                        break;
-                    }
-                }
-            }
-
-            if (result != null) {
-                // Log.d("BigMaps", "tap: " + result);
-                Toast.makeText(getApplicationContext(), result, Toast.LENGTH_SHORT).show();
-
-                Paint stroke = new Paint();
-                stroke.setStyle(Paint.Style.STROKE);
-                stroke.setColor(Color.parseColor("#666666"));
-                stroke.setStrokeWidth(3);
-
-                if (prevRegionTapped != null) {
-                    for (int i = 0; i < prevPathOverlay.size(); i++) {
-                        mapView.getOverlays().remove(prevPathOverlay.get(i));
-                    }
-                    prevPathOverlay.clear();
-                }
-
-                ArrayList<ArrayList<GeoPoint>> borderInOutGeoPoint = hashMap.get(result);
-                for (int i = 0; i < borderInOutGeoPoint.size(); i++) {
-                    PathOverlay border = new PathOverlay(Color.RED, getApplicationContext());
-                    border.setPaint(stroke);
-
-                    ArrayList<GeoPoint> borderGeoPoint = borderInOutGeoPoint.get(i);
-                    for (int j = 0; j < borderGeoPoint.size(); j++) {
-                        border.addPoint(borderGeoPoint.get(j));
-                    }
-                    mapView.getOverlays().add(border);
-                    prevPathOverlay.add(border);
-                    mapView.invalidate();
-                }
-                prevRegionTapped = result;
-            }
-        }
         return false;
     }
 
@@ -375,131 +421,9 @@ public class MapActivity extends Activity implements MapEventsReceiver {
     /** UTILITY METHODS **/
     /*********************/
 
-    private String loadJsonFromAsset(String filename) {
-        String json = null;
-        try {
-            InputStream inputStream = getAssets().open(filename);
-            int size = inputStream.available();
-            byte[] buffer = new byte[size];
-            inputStream.read(buffer);
-            inputStream.close();
-            json = new String(buffer, "UTF-8");
-        } catch (IOException e) {
-            e.printStackTrace();
-            return null;
-        }
-
-        return json;
-    }
-
     /************************/
     /** CHOROPLETH METHODS **/
     /************************/
-
-    private void addChoroplethFromGeoJSON(String jsonString) {
-        try {
-            JSONObject jsonObject = new JSONObject(jsonString);
-            JSONArray regions = jsonObject.getJSONArray("features");
-            // Log.d("BigMaps", String.valueOf(regions.length()));
-
-            // loop 1: region
-            for (int i = 0; i < regions.length(); i++) {
-                new ChoroplethTask().execute(regions.getJSONObject(i));
-            }
-        } catch (JSONException e) {
-            e.printStackTrace();
-        }
-    }
-
-    private class ChoroplethTask extends AsyncTask<JSONObject, Void, Void> {
-
-        @Override
-        protected Void doInBackground(JSONObject... regions) {
-            try {
-                JSONObject properties = regions[0].getJSONObject("properties");
-                String regionName = properties.getString("NAMA_KAB");
-                // Log.d("BigMaps", regionName);
-
-                JSONObject geometry = regions[0].getJSONObject("geometry");
-                JSONArray coordinates = geometry.getJSONArray("coordinates");
-
-                PathOverlay regionOverlay = new PathOverlay(Color.RED, getApplicationContext());
-
-                Paint stroke = new Paint();
-                stroke.setStyle(Paint.Style.STROKE);
-                stroke.setColor(Color.parseColor("#666666"));
-                stroke.setStrokeWidth(2);
-
-                Paint fill = new Paint();
-                fill.setStyle(Paint.Style.FILL);
-                fill.setColor(Color.parseColor(MapColor[colorCounter % MapColor.length]));
-                regionOverlay.setPaint(fill);
-
-                ArrayList<ArrayList<GeoPoint>> regionGeoPoints = new ArrayList<ArrayList<GeoPoint>>();
-                double lon = 0;
-                double lat = 0;
-                // loop 2: border in and out
-                for (int j = 0; j < coordinates.length(); j++) {
-                    PathOverlay borderOverlay = new PathOverlay(Color.RED, getApplicationContext());
-                    borderOverlay.setPaint(stroke);
-
-                    boolean isList = false;
-                    ArrayList<GeoPoint> regionGeoPoint = new ArrayList<GeoPoint>();
-                    JSONArray a = coordinates.getJSONArray(j);
-
-                    // loop 3: either another list of [lon, lat] or [lon, lat]
-                    for (int k = 0; k < a.length(); k++) {
-                        JSONArray b = a.getJSONArray(k);
-
-                        if (b.length() > 2) {
-                            // loop 4: [lon, lat]
-                            for (int l = 0; l < b.length(); l++) {
-                                JSONArray c = b.getJSONArray(l);
-                                lon = c.getDouble(0);
-                                lat = c.getDouble(1);
-                                GeoPoint p = new GeoPoint(lat, lon);
-                                regionOverlay.addPoint(p);
-                                borderOverlay.addPoint(p);
-
-                                regionGeoPoint.add(p);
-                            }
-                            regionGeoPoints.add(regionGeoPoint);
-                            isList = true;
-                        } else {
-                            // [lon, lat]
-                            lon = b.getDouble(0);
-                            lat = b.getDouble(1);
-                            GeoPoint p = new GeoPoint(lat, lon);
-                            regionOverlay.addPoint(p);
-                            borderOverlay.addPoint(p);
-                            regionGeoPoint.add(p);
-                        }
-                    }
-
-                    if (isList == false) {
-                        regionGeoPoints.add(regionGeoPoint);
-                    }
-
-                    mapView.getOverlays().add(borderOverlay);
-                }
-
-                mapView.getOverlays().add(regionOverlay);
-
-                colorCounter += 1;
-
-                hashMap.put(regionName, regionGeoPoints);
-            } catch (JSONException e) {
-                e.printStackTrace();
-            }
-            return null;
-        }
-
-        @Override
-        protected void onPostExecute(Void result) {
-            // update UI asynchronously
-            mapView.invalidate();
-        }
-    }
 
     private class FastChoroplethTask extends AsyncTask<ArrayList, Void, Void> {
         @Override
@@ -549,61 +473,10 @@ public class MapActivity extends Activity implements MapEventsReceiver {
             // update UI asynchronously
             mapView.invalidate();
         }
-
-    }
-
-    private boolean isPointInPolygon(IGeoPoint tap, ArrayList<GeoPoint> vertices) {
-        int intersectCount = 0;
-        for (int j = 0; j < vertices.size() - 1; j++) {
-            if (rayCastIntersect(tap, vertices.get(j), vertices.get(j + 1))) {
-                intersectCount++;
-            }
-        }
-        return ((intersectCount % 2) == 1); // odd = inside, even = outside;
     }
 
     private boolean isPointInPolygon(IGeoPoint tap, final ArrayList<Double> lonCoordinates,
             final ArrayList<Double> latCoordinates) {
-
-        // HashMap<Boolean, Integer> result = new HashMap<Boolean, Integer>();
-        // result.put(true, 0);
-        // result.put(false, 0);
-        //
-        // final ArrayList<IGeoPoint> testTap = new ArrayList<IGeoPoint>();
-        //
-        //
-        // testTap.add(new GeoPoint(tap0.getLatitudeE6() / 1E6 - 0.005, tap0.getLongitudeE6() / 1E6 - 0.005));
-        // testTap.add(new GeoPoint(tap0.getLatitudeE6() / 1E6 - 0.005, tap0.getLongitudeE6() / 1E6));
-        // testTap.add(new GeoPoint(tap0.getLatitudeE6() / 1E6 - 0.005, tap0.getLongitudeE6() / 1E6 + 0.005));
-        //
-        // testTap.add(new GeoPoint(tap0.getLatitudeE6() / 1E6, tap0.getLongitudeE6() / 1E6 - 0.005));
-        // testTap.add(tap0);
-        // testTap.add(new GeoPoint(tap0.getLatitudeE6() / 1E6, tap0.getLongitudeE6() / 1E6 + 0.005));
-        //
-        // testTap.add(new GeoPoint(tap0.getLatitudeE6() / 1E6 + 0.005, tap0.getLongitudeE6() / 1E6 - 0.005));
-        // testTap.add(new GeoPoint(tap0.getLatitudeE6() / 1E6 + 0.005, tap0.getLongitudeE6() / 1E6));
-        // testTap.add(new GeoPoint(tap0.getLatitudeE6() / 1E6 + 0.005, tap0.getLongitudeE6() / 1E6 + 0.005));
-
-        // for (int i = 0; i < testTap.size(); i++) {
-        // int intersectCount = 0;
-        //
-        // for (int j = 0; j < lonCoordinates.size() - 1; j++) {
-        // if (rayCastIntersect(testTap.get(i), new GeoPoint(latCoordinates.get(j), lonCoordinates.get(j)),
-        // new GeoPoint(latCoordinates.get(j + 1), lonCoordinates.get(j + 1)))) {
-        // intersectCount++;
-        // }
-        // }
-        //
-        // if (((intersectCount % 2) == 1) == true) {
-        // result.put(true, result.get(true) + 1);
-        // } else {
-        // result.put(false, result.get(false) + 1);
-        // }
-        // }
-
-        // Log.d("BigMaps", result.toString());
-        // Log.d("BigMaps", " ");
-
         int intersectCount = 0;
 
         for (int j = 0; j < lonCoordinates.size() - 1; j++) {
@@ -635,5 +508,4 @@ public class MapActivity extends Activity implements MapEventsReceiver {
 
         return x > pX;
     }
-
 }
