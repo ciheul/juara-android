@@ -6,5 +6,17 @@
     <string name="hello_world">Hello world!</string>
     <string name="ZoomIn">Zoom In</string>
     <string name="ZoomOut">Zoom Out</string>
+    <string name="drawer_open">Open navigation drawer</string>
+    <string name="drawer_close">Close navigation drawer</string>
+    <string name="app_not_available">Sorry, there\'s no web browser available</string>
+    <string name="action_websearch">Search</string>
+
+    <string-array name="features_array">
+        <item>Choropleth</item>
+        <item>Bike Sharing</item>
+        <item>Traffic</item>
+        <item>Direktori Bandung</item>        
+    </string-array>
+    <string name="action_directions">Directions</string>
 
 </resources>

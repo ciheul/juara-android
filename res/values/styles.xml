@@ -17,4 +17,8 @@
         <!-- All customizations that are NOT specific to a particular API-level can go here. -->
     </style>
 
+    <style name="btnMoreInfo">
+        <item name="android:background">@drawable/btn_moreinfo</item>
+        
+    </style>
 </resources>

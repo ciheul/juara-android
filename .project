@@ -3,6 +3,7 @@
 	<name>bigmaps-android</name>
 	<comment></comment>
 	<projects>
+		<project>OSMBonusPack</project>
 		<project>osmdroid-android</project>
 	</projects>
 	<buildSpec>
