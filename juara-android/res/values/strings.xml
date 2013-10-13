@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <string name="app_name">Juara!</string>
+    <string name="action_settings">Settings</string>
+    <string name="hello_world">Hello world!</string>
+    <string name="ZoomIn">Zoom In</string>
+    <string name="ZoomOut">Zoom Out</string>
+    <string name="drawer_open">Open navigation drawer</string>
+    <string name="drawer_close">Close navigation drawer</string>
+    <string name="app_not_available">Sorry, there\'s no web browser available</string>
+    <string name="action_websearch">Search</string>
+
+    <string-array name="features_array">
+        <item>Kelurahan</item>
+        <item>Kecamatan</item>        
+        <item>Direktori Bandung</item>        
+    </string-array>
+    <string name="action_directions">Directions</string>
+    <string name="label_navigate">Navigate</string>
+    <string name="splashscreen_bandung">Bandung</string>
+    <string name="splashscreen_juara">Juara</string>
+    <color name="bandungjuara">#00aef0</color>
+
+</resources>
