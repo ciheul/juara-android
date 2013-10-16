@@ -40,6 +40,10 @@
             android:name="com.ciheul.bigmaps.data.BigBikeContentProvider"
             android:authorities="com.ciheul.bigmaps.data.BigBikeContentProvider" >
         </provider>
+        <provider
+            android:name="com.ciheul.bigmaps.data.JuaraContentProvider"
+            android:authorities="com.ciheul.bigmaps.data.JuaraContentProvider" >
+        </provider>
     </application>
 
 </manifest>

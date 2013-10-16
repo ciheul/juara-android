@@ -8,6 +8,7 @@
 package com.ciheul.bigmaps.activity;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.Callable;
@@ -34,15 +35,18 @@ import org.osmdroid.views.overlay.OverlayItem;
 import org.osmdroid.views.overlay.PathOverlay;
 
 import android.app.Activity;
-import android.app.Fragment;
-import android.app.FragmentTransaction;
+import android.app.AlertDialog;
+import android.content.DialogInterface;
 import android.content.SharedPreferences;
 import android.content.res.Configuration;
+import android.database.Cursor;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.drawable.Drawable;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Message;
 import android.support.v4.app.ActionBarDrawerToggle;
 import android.support.v4.view.GravityCompat;
 import android.support.v4.widget.DrawerLayout;
@@ -55,10 +59,13 @@ import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.ListView;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import com.ciheul.bigmaps.MapsApplication;
 import com.ciheul.bigmaps.R;
+import com.ciheul.bigmaps.data.JuaraContentProvider;
+import com.ciheul.bigmaps.data.JuaraDatabaseHelper;
 import com.ciheul.bigmaps.extend.ViaPointInfoWindow;
 
 public class MapActivity extends Activity implements MapEventsReceiver {
@@ -79,21 +86,18 @@ public class MapActivity extends Activity implements MapEventsReceiver {
 
     /** Overlay */
     private MapEventsOverlay eventsOverlay;
-    // private DirectedLocationOverlay currentUser;
     private ItemizedOverlay<OverlayItem> currentUserItemizedOverlay;
     private ItemizedOverlayWithBubble<ExtendedOverlayItem> itemizedOverlayBubble;
+    // private DirectedLocationOverlay currentUser;
     // private ScaleBarOverlay scaleBarOverlay;
     // private MinimapOverlay miniMapOverlay;
 
     private ArrayList<ExtendedOverlayItem> listMarker;
 
-    private Button btnTrackCurrentUser;
+    private TextView tvRegionName;
     private ImageView imgZoomIn;
     private ImageView imgZoomOut;
-
-    /** Map Color */
-    private int colorCounter = 0;
-    public String[] MapColor = { "#762A83", "#9970AB", "#C2A5CF", "#E7D4E8", "#D9F0D3", "#A6DBA0", "#5AAE61", "#1B7837" };
+    private Button btnTrackCurrentUser;
 
     private String prevRegionTapped;
     private ArrayList<PathOverlay> prevPathOverlay;
@@ -101,6 +105,9 @@ public class MapActivity extends Activity implements MapEventsReceiver {
 
     private SharedPreferences prefs;
     private SharedPreferences.Editor prefsEditor;
+
+    // the number is decided empirically. the range between 8-12 gives optimal result
+    private final static int NUM_THREADS = 9;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -114,7 +121,9 @@ public class MapActivity extends Activity implements MapEventsReceiver {
 
         Log.d("BigMaps", "MapsActivity: onCreate");
 
-        /** Navigation Drawer */
+        /***********************/
+        /** Navigation Drawer **/
+        /***********************/
 
         title = drawerTitle = getTitle();
         featureTitles = getResources().getStringArray(R.array.features_array);
@@ -138,17 +147,20 @@ public class MapActivity extends Activity implements MapEventsReceiver {
             public void onDrawerOpened(View view) {
                 getActionBar().setTitle(drawerTitle);
                 invalidateOptionsMenu();
+//                Log.d("BigMaps", prefs.getString("currentRegionTapped", "None"));
             }
         };
         drawerLayout.setDrawerListener(drawerToggle);
 
-        /** Map */
+        /*********/
+        /** Map **/
+        /*********/
 
         resourceProxy = new DefaultResourceProxyImpl(getApplicationContext());
 
         mapView = (MapView) findViewById(R.id.mapview);
         mapView.setTileSource(TileSourceFactory.MAPQUESTOSM);
-        mapView.setMultiTouchControls(true);
+        // mapView.setMultiTouchControls(true);
         mapView.setBuiltInZoomControls(false);
 
         mapController = (MapController) mapView.getController();
@@ -161,15 +173,15 @@ public class MapActivity extends Activity implements MapEventsReceiver {
                 mapView, new ViaPointInfoWindow(getApplicationContext(), R.layout.bonuspack_bubble, mapView));
         // mapView.getOverlays().add(itemizedOverlayBubble);
 
-        btnTrackCurrentUser = (Button) findViewById(R.id.buttonTrackingMode);
-        btnTrackCurrentUser.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                mapView.getController().animateTo(new GeoPoint(app.getCurrentLatitude(), app.getCurrentLongitude()));
-                mapController.setZoom(15);
-                addUserMarker();
-            }
-        });
+        // btnTrackCurrentUser = (Button) findViewById(R.id.buttonTrackingMode);
+        // btnTrackCurrentUser.setOnClickListener(new View.OnClickListener() {
+        // @Override
+        // public void onClick(View view) {
+        // mapView.getController().animateTo(new GeoPoint(app.getCurrentLatitude(), app.getCurrentLongitude()));
+        // mapController.setZoom(15);
+        // // addUserMarker();
+        // }
+        // });
 
         prevPathOverlay = new ArrayList<PathOverlay>();
         choroplethOverlay = new ArrayList<PathOverlay>();
@@ -188,6 +200,8 @@ public class MapActivity extends Activity implements MapEventsReceiver {
         // mapView.getOverlays().add(miniMapOverlay);
 
         // edtSearch = (EditText) findViewById(R.id.edtSearch);
+
+        tvRegionName = (TextView) findViewById(R.id.tvRegionName);
 
         imgZoomIn = (ImageView) findViewById(R.id.imgZoomIn);
         imgZoomIn.setImageResource(R.drawable.zoom_in);
@@ -219,9 +233,16 @@ public class MapActivity extends Activity implements MapEventsReceiver {
         super.onResume();
         Log.d("BigMaps", "MapsActivity: onResume");
 
-        addUserMarker();
+        // addUserMarker();
         restorePreviousCenterState();
-        selectItem(-1, prefs.getInt("prevDrawerSelectedPosition", -1));
+
+        selectItem(-1, prefs.getInt("currentDrawerSelectedPosition", -1));
+
+        if (!prefs.getString("currentRegionTapped", "None").equals("None")) {
+            showRegionName(prefs.getString("currentRegionTapped", "None"));
+        }
+
+        invalidateOptionsMenu();
     }
 
     @Override
@@ -257,136 +278,125 @@ public class MapActivity extends Activity implements MapEventsReceiver {
 
     }
 
+    private void restorePreviousCenterState() {
+        SharedPreferences prefs = getPreferences(MODE_PRIVATE);
+        SharedPreferences.Editor editor = prefs.edit();
+
+        float lon = prefs.getFloat("prevLongitude", (float) app.getCurrentLongitude());
+        float lat = prefs.getFloat("prevLatitude", (float) app.getCurrentLatitude());
+
+        mapController.setCenter(new GeoPoint(lat, lon));
+        mapController.setZoom(prefs.getInt("zoomLevel", 15));
+        editor.remove("prevLongitude");
+        editor.remove("prevLatitude");
+        editor.remove("zoomLevel");
+        editor.commit();
+    }
+
+    private void savePreviousCenterState() {
+        SharedPreferences prefs = getPreferences(MODE_PRIVATE);
+        SharedPreferences.Editor editor = prefs.edit();
+        editor.putFloat("prevLongitude", (float) (mapView.getMapCenter().getLongitudeE6() / 1E6));
+        editor.putFloat("prevLatitude", (float) (mapView.getMapCenter().getLatitudeE6() / 1E6));
+        editor.putInt("zoomLevel", mapView.getProjection().getZoomLevel());
+        editor.commit();
+    }
+
     /***********************/
     /** NAVIGATION DRAWER **/
     /***********************/
-
-    /* Called whenever we call invalidateOptionsMenu() */
-    @Override
-    public boolean onPrepareOptionsMenu(Menu menu) {
-        // If the nav drawer is open, hide action items related to the content view
-        boolean drawerOpen = drawerLayout.isDrawerOpen(drawerList);
-        // menu.findItem(R.id.action_websearch).setVisible(!drawerOpen);
-        menu.findItem(R.id.action_navigation).setVisible(!drawerOpen);
-        return super.onPrepareOptionsMenu(menu);
-    }
-
-    @Override
-    public boolean onOptionsItemSelected(MenuItem item) {
-        // The action bar home/up action should open or close the drawer.
-        // ActionBarDrawerToggle will take care of this.
-        if (drawerToggle.onOptionsItemSelected(item)) {
-            return true;
-        }
-        // Handle action buttons
-        switch (item.getItemId()) {
-        case R.id.action_navigation:
-
-            Fragment fragment = new NavigateFragment();
-
-            FragmentTransaction ft = getFragmentManager().beginTransaction();
-            ft.replace(R.id.content_frame, fragment);
-            ft.addToBackStack(null);
-            ft.commit();
-
-            Toast.makeText(this, "Directions feature is coming soon!", Toast.LENGTH_SHORT).show();
-            return true;
-            // case R.id.action_websearch:
-            // Toast.makeText(this, "Search feature is coming soon!", Toast.LENGTH_SHORT).show();
-            // // create intent to perform web search for this planet
-            // // Intent intent = new Intent(Intent.ACTION_WEB_SEARCH);
-            // // intent.putExtra(SearchManager.QUERY, getActionBar().getTitle());
-            // // // catch event that there's no activity to handle intent
-            // // if (intent.resolveActivity(getPackageManager()) != null) {
-            // // startActivity(intent);
-            // // } else {
-            // // Toast.makeText(this, R.string.app_not_available, Toast.LENGTH_LONG).show();
-            // // }
-            // return true;
-        default:
-            return super.onOptionsItemSelected(item);
-        }
-    }
-
-    // public static class NavigateFragment extends Fragment {
-    // public static final String ARG_PLANET_NUMBER = "planet_number";
-    //
-    // public NavigateFragment() {
-    // // Empty constructor required for fragment subclasses
-    // }
-    //
-    // @Override
-    // public View onCreateView(LayoutInflater inflater, ViewGroup container,
-    // Bundle savedInstanceState) {
-    // View rootView = inflater.inflate(R.layout.fragment_navigate, container, false);
-    // // int i = getArguments().getInt(ARG_PLANET_NUMBER);
-    // // String planet = getResources().getStringArray(R.array.planets_array)[i];
-    //
-    // int imageId = getResources().getIdentifier(planet.toLowerCase(Locale.getDefault()),
-    // "drawable", getActivity().getPackageName());
-    // ((ImageView) rootView.findViewById(R.id.image)).setImageResource(imageId);
-    // // getActivity().setTitle(planet);
-    // return rootView;
-    // }
-    // }
 
     /* The click listener for ListView in the navigation drawer */
     private class DrawerItemClickListener implements ListView.OnItemClickListener {
         @Override
         public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
-            selectItem(prefs.getInt("prevDrawerSelectedPosition", -1), position);
+            prefsEditor.putString("currentRegionTapped", "None").commit();
+            selectItem(prefs.getInt("currentDrawerSelectedPosition", -1), position);
         }
     }
 
     private void selectItem(int prevPosition, int position) {
-        // Fragment fragment = new FeatureFragment();
-        // Bundle args = new Bundle();
-        // args.putInt(FeatureFragment.ARG_FEATURE_NUMBER, position);
-        // fragment.setArguments(args);
-        //
-        // FragmentManager fragmentManager = getFragmentManager();
-        // fragmentManager.beginTransaction().replace(R.id.content_frame, fragment).commit();
-        //
-
         if (position == -1) {
             return;
         }
 
+        tvRegionName.setVisibility(View.INVISIBLE);
         String feature = getResources().getStringArray(R.array.features_array)[position];
 
         if (position == prevPosition) {
-            if (feature.equals("Choropleth") || feature.equals("Bike Sharing")) {
+            if (feature.equals("Kelurahan") || feature.equals("Kecamatan")) {
                 mapView.getOverlays().clear();
-                addUserMarker();
+                // addUserMarker();
                 mapView.invalidate();
+                prefsEditor.putString("currentMapMode", "None").commit();
             }
 
             drawerList.setItemChecked(position, false);
             setTitle(getTitle());
-            prefsEditor.putInt("prevDrawerSelectedPosition", -1).commit();
+            prefsEditor.putInt("currentDrawerSelectedPosition", -1).commit();
         } else {
             itemizedOverlayBubble.hideBubble();
             mapView.getOverlays().clear();
             mapView.getOverlays().add(eventsOverlay);
 
-            if (feature.equals("Kelurahan")) {
+            if (feature.equals("Kecamatan")) {
                 mapController.setZoom(12);
+
+                if (prefs.getInt("currentDrawerSelectedPosition", -1) == app.KECAMATAN
+                        && !prefs.getString("currentMapMode", "None").equals("None")) {
+
+                    String[] projection = { JuaraDatabaseHelper.COL_ADMINISTRATIVE_NAME,
+                            JuaraDatabaseHelper.COL_POPULATION_MALE, JuaraDatabaseHelper.COL_POPULATION_FEMALE };
+                    Cursor cursor = getContentResolver().query(JuaraContentProvider.ADMINISTRATIVE_CONTENT_URI,
+                            projection, null, null, null);
+
+                    HashMap<String, Integer> regionPopulation = new HashMap<String, Integer>();
+                    if (cursor != null) {
+                        while (cursor.moveToNext()) {
+
+                            String name = cursor.getString(cursor
+                                    .getColumnIndexOrThrow(JuaraDatabaseHelper.COL_ADMINISTRATIVE_NAME));
+                            int male = cursor.getInt(cursor
+                                    .getColumnIndexOrThrow(JuaraDatabaseHelper.COL_POPULATION_MALE));
+                            int female = cursor.getInt(cursor
+                                    .getColumnIndexOrThrow(JuaraDatabaseHelper.COL_POPULATION_FEMALE));
+                            int total = male + female;
+                            regionPopulation.put(name, total);
+                            // Log.d("BigMaps", name + " => " + String.valueOf(total));
+                        }
+                    }
+                    cursor.close();
+
+                    for (Map.Entry<String, ArrayList<HashMap<String, ArrayList<Double>>>> entry : app.structuredMapKecamatan
+                            .entrySet()) {
+                        int totalPopulation = -1;
+                        if (regionPopulation.containsKey(entry.getKey())) {
+                            totalPopulation = regionPopulation.get(entry.getKey());
+                        }
+
+                        new FastChoroplethTask("Jumlah Penduduk", totalPopulation).execute(entry.getValue());
+                    }
+
+                } else {
+                    for (Map.Entry<String, ArrayList<HashMap<String, ArrayList<Double>>>> entry : app.structuredMapKecamatan
+                            .entrySet()) {
+                        new FastChoroplethTask("None", entry.getKey()).execute(entry.getValue());
+                    }
+                    prefsEditor.putString("currentMapMode", "None").commit();
+                }
+
+                prefsEditor.putBoolean("Kecamatan", true).commit();
+            } else if (feature.equals("Kelurahan")) {
+                mapController.setZoom(12);
+                mapController.setCenter(new GeoPoint(app.bandungLatitude, app.bandungLongitude));
 
                 for (Map.Entry<String, ArrayList<HashMap<String, ArrayList<Double>>>> entry : app.structuredMapKelurahan
                         .entrySet()) {
-                    new FastChoroplethTask().execute(entry.getValue());
+                    new FastChoroplethTask("None", entry.getKey()).execute(entry.getValue());
                 }
 
-                prefsEditor.putBoolean("choroplethMap", true).commit();
-            } else if (feature.equals("Kecamatan")) {
-                mapController.setZoom(12);
-
-                for (Map.Entry<String, ArrayList<HashMap<String, ArrayList<Double>>>> entry : app.structuredMapKecamatan
-                        .entrySet()) {
-                    new FastChoroplethTask().execute(entry.getValue());
-                }
-
-                prefsEditor.putBoolean("choroplethMap", true).commit();
+                prefsEditor.putBoolean("Kelurahan", true).commit();
+                prefsEditor.putString("currentMapMode", "None").commit();
             } else if (feature.equals("Bike Sharing")) {
                 addUserMarker();
 
@@ -402,7 +412,7 @@ public class MapActivity extends Activity implements MapEventsReceiver {
 
                 Toast.makeText(this, "Traffic feature is coming soon!", Toast.LENGTH_SHORT).show();
             } else if (feature.equals("Direktori Bandung")) {
-                addUserMarker();
+                // addUserMarker();
 
                 mapController.setZoom(15);
                 mapView.getController().animateTo(new GeoPoint(app.getCurrentLatitude(), app.getCurrentLongitude()));
@@ -413,8 +423,7 @@ public class MapActivity extends Activity implements MapEventsReceiver {
             mapView.invalidate();
             drawerList.setItemChecked(position, true);
             setTitle(featureTitles[position]);
-            prefsEditor.putInt("prevDrawerSelectedPosition", position).commit();
-
+            prefsEditor.putInt("currentDrawerSelectedPosition", position).commit();
         }
         drawerLayout.closeDrawer(drawerList);
     }
@@ -443,88 +452,172 @@ public class MapActivity extends Activity implements MapEventsReceiver {
         drawerToggle.onConfigurationChanged(newConfig);
     }
 
-    /**
-     * Fragment that appears in the "content_frame", shows a feature
-     */
-    // public static class FeatureFragment extends Fragment {
-    // public static final String ARG_FEATURE_NUMBER = "feature_number";
-    //
-    // public FeatureFragment() {
-    // // Empty constructor required for fragment subclasses
-    // }
-    //
-    // @Override
-    // public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
-    // View rootView = inflater.inflate(R.layout.fragment_navigate, container, false);
-    // int i = getArguments().getInt(ARG_FEATURE_NUMBER);
-    // String planet = getResources().getStringArray(R.array.features_array)[i];
-    //
-    // int imageId = getResources().getIdentifier(planet.toLowerCase(Locale.getDefault()), "drawable",
-    // getActivity().getPackageName());
-    // ((ImageView) rootView.findViewById(R.id.image)).setImageResource(imageId);
-    // getActivity().setTitle(planet);
-    // return rootView;
-    // }
-    // }
+    /****************/
+    /** ACTION BAR **/
+    /****************/
 
-    /************************/
-    /** MAPEVENTS RECEIVER **/
-    /************************/
-    private class IsPointInPolygonCallable implements Callable<Boolean> {
+    /* Called whenever we call invalidateOptionsMenu() */
+    @Override
+    public boolean onPrepareOptionsMenu(Menu menu) {
+        // If the nav drawer is open, hide action items related to the content view or the drawer is not selected
+        boolean drawerOpen = drawerLayout.isDrawerOpen(drawerList);
 
-        private ArrayList<Double> lonCoordinates;
-        private ArrayList<Double> latCoordinates;
-        private IGeoPoint tap;
-        private String regionName;
+        menu.findItem(R.id.action_choropleth).setVisible(!drawerOpen);
+        menu.findItem(R.id.action_region_list).setVisible(!drawerOpen);
 
-        private IsPointInPolygonCallable(String regionName, IGeoPoint tap, ArrayList<Double> lonCoordinates,
-                ArrayList<Double> latCoordinates) {
-            this.regionName = regionName;
-            this.tap = tap;
-            this.lonCoordinates = lonCoordinates;
-            this.latCoordinates = latCoordinates;
+        if (this.title.equals(getTitle())) {
+            menu.findItem(R.id.action_choropleth).setVisible(false);
+            menu.findItem(R.id.action_region_list).setVisible(false);
+        } else if (prefs.getInt("currentDrawerSelectedPosition", -1) == app.KECAMATAN) {
+            menu.findItem(R.id.action_choropleth).setVisible(true);
+            menu.findItem(R.id.action_region_list).setVisible(true);
+        } else if (prefs.getInt("currentDrawerSelectedPosition", -1) == app.KELURAHAN) {
+            menu.findItem(R.id.action_choropleth).setVisible(false);
+            menu.findItem(R.id.action_region_list).setVisible(true);
         }
 
-        @Override
-        public Boolean call() throws Exception {
-            // long threadId = Thread.currentThread().getId() % NUM_THREADS + 1;
+        return super.onPrepareOptionsMenu(menu);
+    }
 
-            if (isPointInPolygon(tap, lonCoordinates, latCoordinates)) {
-                // Log.d("BigMaps", "threadId: " + String.valueOf(threadId) + " " + regionName + " => true");
-                return true;
+    @Override
+    public boolean onOptionsItemSelected(MenuItem item) {
+
+        // The action bar home/up action should open or close the drawer.
+        // ActionBarDrawerToggle will take care of this.
+        if (drawerToggle.onOptionsItemSelected(item)) {
+            return true;
+        }
+
+        // Handle action buttons
+        switch (item.getItemId()) {
+
+        case R.id.action_choropleth:
+            final String[] stringArrayChoropleth = { "Jumlah Penduduk" };
+
+            AlertDialog.Builder choroplethBuilder = new AlertDialog.Builder(this);
+            choroplethBuilder.setTitle("Pilih Peta Berdasarkan");
+
+            choroplethBuilder.setItems(stringArrayChoropleth, new DialogInterface.OnClickListener() {
+                @Override
+                public void onClick(DialogInterface dialog, int position) {
+                    tvRegionName.setVisibility(View.INVISIBLE);
+
+                    // due to the given data only for KECAMATAN, the lines here are not possible for KELURAHAN
+                    if (stringArrayChoropleth[position].equals("Jumlah Penduduk")) {
+
+                        clearHighlightedRegion();
+
+                        if (prefs.getInt("currentDrawerSelectedPosition", -1) == app.KECAMATAN) {
+                            String[] projection = { JuaraDatabaseHelper.COL_ADMINISTRATIVE_NAME,
+                                    JuaraDatabaseHelper.COL_POPULATION_MALE, JuaraDatabaseHelper.COL_POPULATION_FEMALE };
+                            Cursor cursor = getContentResolver().query(JuaraContentProvider.ADMINISTRATIVE_CONTENT_URI,
+                                    projection, null, null, null);
+
+                            HashMap<String, Integer> regionPopulation = new HashMap<String, Integer>();
+                            if (cursor != null) {
+                                while (cursor.moveToNext()) {
+
+                                    String name = cursor.getString(cursor
+                                            .getColumnIndexOrThrow(JuaraDatabaseHelper.COL_ADMINISTRATIVE_NAME));
+                                    int male = cursor.getInt(cursor
+                                            .getColumnIndexOrThrow(JuaraDatabaseHelper.COL_POPULATION_MALE));
+                                    int female = cursor.getInt(cursor
+                                            .getColumnIndexOrThrow(JuaraDatabaseHelper.COL_POPULATION_FEMALE));
+                                    int total = male + female;
+                                    regionPopulation.put(name, total);
+                                    // Log.d("BigMaps", name + " => " + String.valueOf(total));
+                                }
+                            }
+                            cursor.close();
+
+                            for (Map.Entry<String, ArrayList<HashMap<String, ArrayList<Double>>>> entry : app.structuredMapKecamatan
+                                    .entrySet()) {
+
+                                int totalPopulation = -1;
+                                if (regionPopulation.containsKey(entry.getKey())) {
+                                    totalPopulation = regionPopulation.get(entry.getKey());
+                                }
+
+                                new FastChoroplethTask("Jumlah Penduduk", totalPopulation).execute(entry.getValue());
+                            }
+
+                        }
+
+                        prefsEditor.putString("currentMapMode", "Jumlah Penduduk").commit();
+                    }
+                }
+            });
+
+            AlertDialog choroplethDialog = choroplethBuilder.create();
+            choroplethDialog.show();
+
+            return true;
+
+        case R.id.action_region_list:
+            AlertDialog.Builder regionBuilder = new AlertDialog.Builder(this);
+
+            if (prefs.getInt("currentDrawerSelectedPosition", -1) == app.KECAMATAN) {
+                app.selectedMap = app.structuredMapKecamatan;
+                regionBuilder.setTitle("Pilih Kecamatan");
+            } else if (prefs.getInt("currentDrawerSelectedPosition", -1) == app.KELURAHAN) {
+                app.selectedMap = app.structuredMapKelurahan;
+                regionBuilder.setTitle("Pilih Kelurahan");
             }
 
-            // Log.d("BigMaps", "threadId: " + String.valueOf(threadId) + " " + regionName + " =>false");
-            return false;
+            ArrayList<String> stringArrayList = new ArrayList<String>();
+            for (Map.Entry<String, ArrayList<HashMap<String, ArrayList<Double>>>> entry : app.selectedMap.entrySet()) {
+                stringArrayList.add(entry.getKey());
+            }
+            Collections.sort(stringArrayList);
+            final String[] stringArray = stringArrayList.toArray(new String[stringArrayList.size()]);
+
+            regionBuilder.setItems(stringArray, new DialogInterface.OnClickListener() {
+                @Override
+                public void onClick(DialogInterface dialog, int position) {
+                    clearHighlightedRegion();
+                    highlightTappedRegion(stringArray[position]);
+                    showRegionName(stringArray[position]);
+                }
+            });
+
+            AlertDialog regionDialog = regionBuilder.create();
+            regionDialog.show();
+
+            return true;
+
+        default:
+            return super.onOptionsItemSelected(item);
         }
     }
 
-    private final static int NUM_THREADS = 9;
+    /*********/
+    /** MAP **/
+    /*********/
 
     @Override
     public boolean singleTapUpHelper(IGeoPoint tap) {
 
         // this one is for bike sharing. useless for a time being.
-        if (prefs.getInt("prevDrawerSelectedPosition", -1) == -999) {
+        if (prefs.getInt("currentDrawerSelectedPosition", -1) == -999) {
             itemizedOverlayBubble.hideBubble();
         }
-        // TODO the selected position is confusing. 0 and 1 are position on drawer. 0 == KECAMATAN. 1 == KELURAHAN
-        else if (prefs.getInt("prevDrawerSelectedPosition", -1) == 0
-                || prefs.getInt("prevDrawerSelectedPosition", -1) == 1) {
+        // TODO investigate whether accessing the attribute directly is faster than using getter method
+        else if (prefs.getInt("currentDrawerSelectedPosition", -1) == app.KECAMATAN
+                || prefs.getInt("currentDrawerSelectedPosition", -1) == app.KELURAHAN) {
 
-            if (prefs.getInt("prevDrawerSelectedPosition", -1) == 0) {
-                app.selectedMap = app.structuredMapKelurahan;
-            } else if (prefs.getInt("prevDrawerSelectedPosition", -1) == 1) {
+            if (prefs.getInt("currentDrawerSelectedPosition", -1) == app.KECAMATAN) {
                 app.selectedMap = app.structuredMapKecamatan;
+            } else if (prefs.getInt("currentDrawerSelectedPosition", -1) == app.KELURAHAN) {
+                app.selectedMap = app.structuredMapKelurahan;
             }
+
+//            Log.d("BigMaps", String.valueOf(app.selectedMap.size()));
 
             if (app.selectedMap != null) {
                 String regionTapped = null;
 
                 ExecutorService pool = Executors.newFixedThreadPool(NUM_THREADS);
                 HashMap<String, Future<Boolean>> set = new HashMap<String, Future<Boolean>>();
-
-                long start = System.currentTimeMillis();
 
                 // prepare
                 for (Map.Entry<String, ArrayList<HashMap<String, ArrayList<Double>>>> entry : app.selectedMap
@@ -548,13 +641,7 @@ public class MapActivity extends Activity implements MapEventsReceiver {
                     set.put(entry.getKey(), future);
                 }
 
-                long premiddle = System.currentTimeMillis();
-                long duration0 = premiddle - start;
-
-                if (app.DEBUG) {
-                    Log.d("BigMaps", "duration0 = " + String.valueOf(duration0));
-                }
-
+                // get which region user tapping, otherwise no region is tapped
                 for (Map.Entry<String, Future<Boolean>> entry : set.entrySet()) {
                     try {
                         if (entry.getValue().get() == true) {
@@ -583,60 +670,16 @@ public class MapActivity extends Activity implements MapEventsReceiver {
                     }
                 }
 
-                long middle = System.currentTimeMillis();
-                long duration1 = middle - premiddle;
-
-                if (app.DEBUG) {
-                    Log.d("BigMaps", "duration1 = " + String.valueOf(duration1));
-                }
-
+                // when a region is tapped, highlight
                 if (regionTapped != null) {
-                    if (prevRegionTapped != null) {
-                        for (int i = 0; i < prevPathOverlay.size(); i++) {
-                            mapView.getOverlays().remove(prevPathOverlay.get(i));
-                        }
-                        prevPathOverlay.clear();
-                    }
-
-                    Paint stroke = new Paint();
-                    stroke.setStyle(Paint.Style.STROKE);
-                    stroke.setColor(Color.parseColor("#666666"));
-                    stroke.setStrokeWidth(3);
-
-                    ArrayList<HashMap<String, ArrayList<Double>>> borders = app.selectedMap.get(regionTapped);
-                    for (int i = 0; i < borders.size(); i++) {
-                        PathOverlay borderOverlay = new PathOverlay(Color.RED, this);
-                        borderOverlay.setPaint(stroke);
-
-                        HashMap<String, ArrayList<Double>> lonOrLatCoordinates = borders.get(i);
-                        ArrayList<Double> lonCoordinates = lonOrLatCoordinates.get("lon");
-                        ArrayList<Double> latCoordinates = lonOrLatCoordinates.get("lat");
-                        int size = lonCoordinates.size();
-
-                        for (int j = 0; j < size; j++) {
-                            borderOverlay.addPoint(new GeoPoint(latCoordinates.get(j), lonCoordinates.get(j)));
-                        }
-
-                        mapView.getOverlays().add(borderOverlay);
-                        mapView.invalidate();
-
-                        // retain the border information
-                        prevPathOverlay.add(borderOverlay);
-                    }
-                    prevRegionTapped = regionTapped;
-
-                    long end = System.currentTimeMillis();
-                    long duration2 = end - middle;
-                    long total = end - start;
-
-                    if (app.DEBUG) {
-                        Log.d("BigMaps", "duration2 = " + String.valueOf(duration2));
-                        Log.d("BigMaps", "-------------------------");
-                        Log.d("BigMaps", "total     = " + String.valueOf(total));
-
-                        Log.d("BigMaps", regionTapped);
-                        Log.d("BigMaps", " ");
-                    }
+                    clearHighlightedRegion();
+                    highlightTappedRegion(regionTapped);
+                    showRegionName(regionTapped);
+                } else {
+                    // when user tapping no region
+                    clearHighlightedRegion();
+                    tvRegionName.setVisibility(View.INVISIBLE);
+                    prefsEditor.putString("currentRegionTapped", "None").commit();
                 }
             }
         }
@@ -649,7 +692,108 @@ public class MapActivity extends Activity implements MapEventsReceiver {
         return false;
     }
 
-    /*******************/
+    private void highlightTappedRegion(String regionName) {
+        // thicken the border line
+        Paint stroke = new Paint();
+        stroke.setStyle(Paint.Style.STROKE);
+        stroke.setColor(Color.parseColor("#666666"));
+        stroke.setStrokeWidth(6);
+
+        Paint fillRegion = new Paint();
+        fillRegion.setStyle(Paint.Style.FILL);
+        fillRegion.setColor(Color.YELLOW);
+
+        if (prefs.getInt("currentDrawerSelectedPosition", -1) == app.KECAMATAN) {
+            app.selectedMap = app.structuredMapKecamatan;
+        } else if (prefs.getInt("currentDrawerSelectedPosition", -1) == app.KELURAHAN) {
+            app.selectedMap = app.structuredMapKelurahan;
+        }
+
+//        Log.d("BigMaps",
+//                "currentDrawerSelectedPosition: " + String.valueOf(prefs.getInt("currentDrawerSelectedPosition", -1)));
+//        Log.d("BigMaps", "app.selectedMap.size: " + String.valueOf(app.selectedMap.size()));
+//        Log.d("BigMaps", String.valueOf(app.selectedMap.containsKey(regionName)));
+//        Log.d("BigMaps", regionName);
+//        Log.d("BigMaps", " ");
+
+//        ArrayList<String> a = new ArrayList<String>();
+//        for (Map.Entry<String, ArrayList<HashMap<String, ArrayList<Double>>>> entry : app.selectedMap.entrySet()) {
+//            a.add(entry.getKey());
+//        }
+//
+//        Collections.sort(a);
+//
+//        for (int i = 0; i < a.size(); i++) {
+//            Log.d("BigMaps", String.valueOf(i) + " " + a.get(i));
+//        }
+
+        ArrayList<HashMap<String, ArrayList<Double>>> borders = app.selectedMap.get(regionName);
+        for (int i = 0; i < borders.size(); i++) {
+            PathOverlay borderOverlay = new PathOverlay(Color.RED, getApplicationContext());
+            borderOverlay.setPaint(stroke);
+
+            PathOverlay regionOverlay = new PathOverlay(Color.RED, getApplicationContext());
+            regionOverlay.setPaint(fillRegion);
+
+            HashMap<String, ArrayList<Double>> lonOrLatCoordinates = borders.get(i);
+            ArrayList<Double> lonCoordinates = lonOrLatCoordinates.get("lon");
+            ArrayList<Double> latCoordinates = lonOrLatCoordinates.get("lat");
+            int size = lonCoordinates.size();
+
+            for (int j = 0; j < size; j++) {
+                borderOverlay.addPoint(new GeoPoint(latCoordinates.get(j), lonCoordinates.get(j)));
+                regionOverlay.addPoint(new GeoPoint(latCoordinates.get(j), lonCoordinates.get(j)));
+            }
+
+            mapView.getOverlays().add(borderOverlay);
+            mapView.getOverlays().add(regionOverlay);
+
+            mapView.invalidate();
+
+            // retain the border information
+            prevPathOverlay.add(borderOverlay);
+            prevPathOverlay.add(regionOverlay);
+        }
+
+        prefsEditor.putString("currentRegionTapped", regionName).commit();
+        // prevRegionTapped = regionName;
+    }
+
+    private void clearHighlightedRegion() {
+        // TODO not elegant
+        // if (prevRegionTapped != null) {
+        if (!prefs.getString("currentRegionTapped", "None").equals("None")) {
+            for (int i = 0; i < prevPathOverlay.size(); i++) {
+                mapView.getOverlays().remove(prevPathOverlay.get(i));
+            }
+            prevPathOverlay.clear();
+            mapView.invalidate();
+            prefsEditor.putString("currentRegionTapped", "None").commit();
+        }
+    }
+
+    private void showRegionName(String regionName) {
+        String additionalInfo = "";
+        if (prefs.getString("currentMapMode", "None").equals("Jumlah Penduduk")
+                && prefs.getInt("currentDrawerSelectedPosition", -1) == app.KECAMATAN) {
+            String[] projection = { JuaraDatabaseHelper.COL_POPULATION_MALE, JuaraDatabaseHelper.COL_POPULATION_FEMALE };
+            String selection = JuaraDatabaseHelper.COL_ADMINISTRATIVE_NAME + "='" + regionName + "'";
+            Cursor cursor = getContentResolver().query(JuaraContentProvider.ADMINISTRATIVE_CONTENT_URI, projection,
+                    selection, null, null);
+
+            if (cursor != null) {
+                cursor.moveToFirst();
+                int male = cursor.getInt(cursor.getColumnIndexOrThrow(JuaraDatabaseHelper.COL_POPULATION_MALE));
+                int female = cursor.getInt(cursor.getColumnIndexOrThrow(JuaraDatabaseHelper.COL_POPULATION_FEMALE));
+                int total = male + female;
+
+                additionalInfo = " > " + total + " penduduk";
+            }
+        }
+
+        tvRegionName.setText(regionName + additionalInfo);
+        tvRegionName.setVisibility(View.VISIBLE);
+    }
 
     private void addUserMarker() {
         // set user's current location and its marker's picture
@@ -677,39 +821,26 @@ public class MapActivity extends Activity implements MapEventsReceiver {
         mapView.getOverlays().add(currentUserItemizedOverlay);
     }
 
-    private void restorePreviousCenterState() {
-        SharedPreferences prefs = getPreferences(MODE_PRIVATE);
-        SharedPreferences.Editor editor = prefs.edit();
-
-        float lon = prefs.getFloat("prevLongitude", (float) app.getCurrentLongitude());
-        float lat = prefs.getFloat("prevLatitude", (float) app.getCurrentLatitude());
-
-        mapController.setCenter(new GeoPoint(lat, lon));
-        mapController.setZoom(prefs.getInt("zoomLevel", 15));
-        editor.remove("prevLongitude");
-        editor.remove("prevLatitude");
-        editor.remove("zoomLevel");
-        editor.commit();
-    }
-
-    private void savePreviousCenterState() {
-        SharedPreferences prefs = getPreferences(MODE_PRIVATE);
-        SharedPreferences.Editor editor = prefs.edit();
-        editor.putFloat("prevLongitude", (float) (mapView.getMapCenter().getLongitudeE6() / 1E6));
-        editor.putFloat("prevLatitude", (float) (mapView.getMapCenter().getLatitudeE6() / 1E6));
-        editor.putInt("zoomLevel", mapView.getProjection().getZoomLevel());
-        editor.commit();
-    }
-
-    /*********************/
-    /** UTILITY METHODS **/
-    /*********************/
-
     /************************/
     /** CHOROPLETH METHODS **/
     /************************/
 
     private class FastChoroplethTask extends AsyncTask<ArrayList, Void, Void> {
+
+        private String choroplethMode;
+        private String regionName;
+        private int var;
+
+        public FastChoroplethTask(String choroplethMode, String regionName) {
+            this.choroplethMode = choroplethMode;
+            this.regionName = regionName;
+        }
+
+        public FastChoroplethTask(String choroplethMode, int var) {
+            this.choroplethMode = choroplethMode;
+            this.var = var;
+        }
+
         @Override
         protected Void doInBackground(ArrayList... arg) {
             ArrayList<HashMap<String, ArrayList<Double>>> borders = arg[0];
@@ -718,10 +849,7 @@ public class MapActivity extends Activity implements MapEventsReceiver {
 
             Paint fillRegion = new Paint();
             fillRegion.setStyle(Paint.Style.FILL);
-            // fillRegion.setColor(Color.parseColor(MapColor[colorCounter % MapColor.length]));
-            fillRegion.setColor(Color.parseColor("#00aef0"));
             fillRegion.setAlpha(200);
-            regionOverlay.setPaint(fillRegion);
 
             Paint stroke = new Paint();
             stroke.setStyle(Paint.Style.STROKE);
@@ -734,6 +862,13 @@ public class MapActivity extends Activity implements MapEventsReceiver {
 
                 PathOverlay borderOverlay = new PathOverlay(Color.RED, getApplicationContext());
                 borderOverlay.setPaint(stroke);
+
+                if (choroplethMode.equals("None")) {
+                    fillRegion.setColor(Color.parseColor("#00aef0"));
+                } else if (choroplethMode.equals("Jumlah Penduduk")) {
+                    fillRegion.setColor(getColorPopulation(var));
+                }
+                regionOverlay.setPaint(fillRegion);
 
                 ArrayList<Double> lonCoordinates = lonOrLatCoordinates.get("lon");
                 ArrayList<Double> latCoordinates = lonOrLatCoordinates.get("lat");
@@ -752,15 +887,71 @@ public class MapActivity extends Activity implements MapEventsReceiver {
             mapView.getOverlays().add(regionOverlay);
             choroplethOverlay.add(regionOverlay);
 
-            colorCounter += 1;
-
             return null;
         }
 
         @Override
         protected void onPostExecute(Void result) {
+            if (!prefs.getString("currentRegionTapped", "None").equals("None")) {
+                Message message = new Message();
+                Bundle bundle = new Bundle();
+                bundle.putInt("increment", 1);
+                message.setData(bundle);
+                highlightRegionHandler.sendMessage(message);
+            }
+
             // update UI asynchronously
             mapView.invalidate();
+        }
+    }
+
+    Handler highlightRegionHandler = new Handler() {
+        private int counter = 0;
+
+        @Override
+        public void handleMessage(Message msg) {
+            int increment = msg.getData().getInt("increment");
+            counter += increment;
+
+            if (prefs.getInt("currentDrawerSelectedPosition", -1) == app.KECAMATAN) {
+                app.selectedMap = app.structuredMapKecamatan;
+            } else if (prefs.getInt("currentDrawerSelectedPosition", -1) == app.KELURAHAN) {
+                app.selectedMap = app.structuredMapKelurahan;
+            }
+
+            if (counter == app.selectedMap.size() && !prefs.getString("currentRegionTapped", "None").equals("None")) {
+//                Log.d("BigMaps", "hi " + prefs.getString("currentRegionTapped", "None"));
+                highlightTappedRegion(prefs.getString("currentRegionTapped", "None"));
+            }
+        }
+    };
+
+    private class IsPointInPolygonCallable implements Callable<Boolean> {
+
+        private ArrayList<Double> lonCoordinates;
+        private ArrayList<Double> latCoordinates;
+        private IGeoPoint tap;
+        private String regionName;
+
+        private IsPointInPolygonCallable(String regionName, IGeoPoint tap, ArrayList<Double> lonCoordinates,
+                ArrayList<Double> latCoordinates) {
+            this.regionName = regionName;
+            this.tap = tap;
+            this.lonCoordinates = lonCoordinates;
+            this.latCoordinates = latCoordinates;
+        }
+
+        @Override
+        public Boolean call() throws Exception {
+            // long threadId = Thread.currentThread().getId() % NUM_THREADS + 1;
+
+            if (isPointInPolygon(tap, lonCoordinates, latCoordinates)) {
+                // Log.d("BigMaps", "threadId: " + String.valueOf(threadId) + " " + regionName + " => true");
+                return true;
+            }
+
+            // Log.d("BigMaps", "threadId: " + String.valueOf(threadId) + " " + regionName + " =>false");
+            return false;
         }
     }
 
@@ -795,5 +986,28 @@ public class MapActivity extends Activity implements MapEventsReceiver {
         double x = (pY - bee) / m; // algebra is neat!
 
         return x > pX;
+    }
+
+    private int getColorPopulation(int numOfPopulation) {
+        int color = Color.WHITE;
+
+        // no data
+        if (numOfPopulation == -1) {
+            return Color.BLACK;
+        }
+
+        if (numOfPopulation < 25000) {
+            color = Color.parseColor("#FFFFB2");
+        } else if (numOfPopulation < 50000) {
+            color = Color.parseColor("#FECC5C");
+        } else if (numOfPopulation < 75000) {
+            color = Color.parseColor("#FD8D3C");
+        } else if (numOfPopulation < 100000) {
+            color = Color.parseColor("#F03B20");
+        } else {
+            color = Color.parseColor("#BD0026");
+        }
+
+        return color;
     }
 }

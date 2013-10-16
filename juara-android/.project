@@ -3,8 +3,7 @@
 	<name>juara-android</name>
 	<comment></comment>
 	<projects>
-		<project>OSMBonusPack</project>
-		<project>osmdroid-android</project>
+		<project>juara-osmdroid-android</project>
 	</projects>
 	<buildSpec>
 		<buildCommand>

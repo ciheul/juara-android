@@ -42,7 +42,7 @@ public class BigBikeDatabaseHelper extends SQLiteOpenHelper {
             + " integer not null);";
 
     // drop business table
-    private static final String DROP_TABLE_BUSINESS = "DROP TABLE IF EXISTS " + TABLE_SHELTER;
+    private static final String DROP_TABLE_SHELTER = "DROP TABLE IF EXISTS " + TABLE_SHELTER;
 
     // drop images table
     private static final String DROP_TABLE_IMAGES = "DROP TABLE IF EXISTS " + TABLE_IMAGE;
@@ -61,7 +61,7 @@ public class BigBikeDatabaseHelper extends SQLiteOpenHelper {
     public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
         String upgrade_message = "Upgrade database v" + oldVersion + " to v" + newVersion + ".";
         Log.w(BigBikeDatabaseHelper.class.getName(), upgrade_message);
-        db.execSQL(DROP_TABLE_BUSINESS);
+        db.execSQL(DROP_TABLE_SHELTER);
         db.execSQL(DROP_TABLE_IMAGES);
         onCreate(db);
     }

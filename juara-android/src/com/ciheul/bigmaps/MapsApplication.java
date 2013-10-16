@@ -26,6 +26,8 @@ import android.util.Log;
 
 import com.ciheul.bigmaps.data.BigBikeContentProvider;
 import com.ciheul.bigmaps.data.BigBikeDatabaseHelper;
+import com.ciheul.bigmaps.data.JuaraContentProvider;
+import com.ciheul.bigmaps.data.JuaraDatabaseHelper;
 import com.ciheul.bigmaps.data.ShelterModel;
 import com.ciheul.bigmaps.util.GPSTracker;
 
@@ -36,6 +38,8 @@ public class MapsApplication extends Application {
     /** Current user's location */
     private double currentLongitude;
     private double currentLatitude;
+    public final double bandungLongitude = 107.64430;
+    public final double bandungLatitude = -6.90862;
 
     private List<ShelterModel> shelters;
 
@@ -54,12 +58,15 @@ public class MapsApplication extends Application {
      * 
      * regionName -> [{ lon: [x1, x2, x3], lat: [y1, y2, y3] }, { lon: [x1, x2, x3], lat: [y1, y2, y3] }, {}, ...]
      */
-    public HashMap<String, ArrayList<HashMap<String, ArrayList<Double>>>> structuredMapKelurahan;
     public HashMap<String, ArrayList<HashMap<String, ArrayList<Double>>>> structuredMapKecamatan;
+    public HashMap<String, ArrayList<HashMap<String, ArrayList<Double>>>> structuredMapKelurahan;
     public HashMap<String, ArrayList<HashMap<String, ArrayList<Double>>>> selectedMap;
 
-    private static final int KELURAHAN = 0;
-    private static final int KECAMATAN = 1;
+    public final int KECAMATAN = 0;
+    public final int KELURAHAN = 1;
+
+    // how to use foursquare api venues/search
+    // https://api.foursquare.com/v2/venues/search?client_id=NJBGWY5F4HTVLHQHNS2F2FMCFURZZZUXJRPH33NFOOGYUP2U&client_secret=BJJRYCNI10UBXWEZET2WNKEFMZXLVY3AZ2GCUH3VCLXVNDAG&ll=40.7,-74%20&query=sushi&&v=20130815
 
     @Override
     public void onCreate() {
@@ -74,8 +81,8 @@ public class MapsApplication extends Application {
             setCurrentLatitude(gps.getLatitude());
         } else {
             // gps.showSettingsAlert();
-            setCurrentLongitude(107.61226);
-            setCurrentLatitude(-6.89848);
+            setCurrentLongitude(bandungLongitude);
+            setCurrentLatitude(bandungLatitude);
         }
 
         if (structuredMapKelurahan == null) {
@@ -92,6 +99,8 @@ public class MapsApplication extends Application {
 
         insertSampleData();
         shelters = queryShelters();
+
+        insertAdministrativeDataFromGeoJSON("administrative_kelurahan_kota_bandung.json");
     }
 
     public double getCurrentLongitude() {
@@ -115,7 +124,7 @@ public class MapsApplication extends Application {
     // private int regions_created_counter = 0;
 
     private void createStructuredMapFromGeoJSON(final String filename, final int MAP_DATA_TYPE) {
-        // as the task doesn't need to update the UI and its heavy to construct a data structure, use Thread
+        // as the task doesn't need to update the UI and it is too slow to construct a data structure, use Thread
         new Thread(new Runnable() {
             @Override
             public void run() {
@@ -221,6 +230,51 @@ public class MapsApplication extends Application {
                 }
             }
         }).start();
+    }
+
+    private void insertAdministrativeDataFromGeoJSON(String filename) {
+        try {
+            // convert from a text file to a string
+            InputStream inputStream = getAssets().open(filename);
+            byte[] buffer = new byte[inputStream.available()];
+            inputStream.read(buffer);
+            inputStream.close();
+            String json = new String(buffer, "UTF-8");
+
+            JSONArray data = new JSONObject(json).getJSONArray("data");
+            int size = data.length();
+
+            List<ContentValues> listValues = new ArrayList<ContentValues>();
+
+            for (int i = 0; i < size; i++) {
+                JSONObject regionData = data.getJSONObject(i);
+//                Log.d("BigMaps", regionData.getString("name"));
+//                Log.d("BigMaps", regionData.getString("leader"));
+
+                ContentValues values = new ContentValues();
+                values.put(JuaraDatabaseHelper.COL_ADMINISTRATIVE_TYPE, regionData.getString("administrative_type"));
+                values.put(JuaraDatabaseHelper.COL_ADMINISTRATIVE_NAME, regionData.getString("name"));
+                values.put(JuaraDatabaseHelper.COL_ADDRESS, regionData.getString("address"));
+                values.put(JuaraDatabaseHelper.COL_LEADER, regionData.getString("leader"));
+                values.put(JuaraDatabaseHelper.COL_EMAIL, regionData.getString("email"));
+                values.put(JuaraDatabaseHelper.COL_TELEPHONE, regionData.getString("telephone"));
+                values.put(JuaraDatabaseHelper.COL_POPULATION_FEMALE, regionData.getInt("population_female"));
+                values.put(JuaraDatabaseHelper.COL_POPULATION_MALE, regionData.getInt("population_male"));
+                values.put(JuaraDatabaseHelper.COL_CREATED_AT, regionData.getString("created_at"));
+                values.put(JuaraDatabaseHelper.COL_UPDATED_AT, regionData.getString("updated_at"));
+
+                listValues.add(values);
+            }
+
+            for (ContentValues value : listValues) {
+//                Log.d("BigMaps", value.toString());
+                getContentResolver().insert(JuaraContentProvider.ADMINISTRATIVE_CONTENT_URI, value);
+            }
+        } catch (JSONException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
     // private class IsPointInPolygonCallable implements Callable<Boolean> {
