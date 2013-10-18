@@ -14,7 +14,6 @@
     <string-array name="features_array">
         <item>Kecamatan</item>
         <item>Kelurahan</item>
-        <item>Direktori Bandung</item>
     </string-array>
 
     <string name="action_directions">Directions</string>

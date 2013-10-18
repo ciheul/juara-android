@@ -7,6 +7,7 @@
 
 package com.ciheul.bigmaps.activity;
 
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -56,7 +57,6 @@ import android.view.MenuItem;
 import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
-import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.ListView;
 import android.widget.TextView;
@@ -97,9 +97,8 @@ public class MapActivity extends Activity implements MapEventsReceiver {
     private TextView tvRegionName;
     private ImageView imgZoomIn;
     private ImageView imgZoomOut;
-    private Button btnTrackCurrentUser;
+    // private Button btnTrackCurrentUser;
 
-    private String prevRegionTapped;
     private ArrayList<PathOverlay> prevPathOverlay;
     private ArrayList<PathOverlay> choroplethOverlay;
 
@@ -147,7 +146,6 @@ public class MapActivity extends Activity implements MapEventsReceiver {
             public void onDrawerOpened(View view) {
                 getActionBar().setTitle(drawerTitle);
                 invalidateOptionsMenu();
-//                Log.d("BigMaps", prefs.getString("currentRegionTapped", "None"));
             }
         };
         drawerLayout.setDrawerListener(drawerToggle);
@@ -233,6 +231,9 @@ public class MapActivity extends Activity implements MapEventsReceiver {
         super.onResume();
         Log.d("BigMaps", "MapsActivity: onResume");
 
+        Log.d("BigMaps", prefs.getString("currentMapMode", "xxx"));
+        Log.d("BigMaps", prefs.getString("currentRegionTapped", "yyy"));
+
         // addUserMarker();
         restorePreviousCenterState();
 
@@ -275,7 +276,6 @@ public class MapActivity extends Activity implements MapEventsReceiver {
     public void onBackPressed() {
         super.onBackPressed();
         Log.d("BigMaps", "MapsActivity: onBackPressed");
-
     }
 
     private void restorePreviousCenterState() {
@@ -340,51 +340,7 @@ public class MapActivity extends Activity implements MapEventsReceiver {
             mapView.getOverlays().add(eventsOverlay);
 
             if (feature.equals("Kecamatan")) {
-                mapController.setZoom(12);
-
-                if (prefs.getInt("currentDrawerSelectedPosition", -1) == app.KECAMATAN
-                        && !prefs.getString("currentMapMode", "None").equals("None")) {
-
-                    String[] projection = { JuaraDatabaseHelper.COL_ADMINISTRATIVE_NAME,
-                            JuaraDatabaseHelper.COL_POPULATION_MALE, JuaraDatabaseHelper.COL_POPULATION_FEMALE };
-                    Cursor cursor = getContentResolver().query(JuaraContentProvider.ADMINISTRATIVE_CONTENT_URI,
-                            projection, null, null, null);
-
-                    HashMap<String, Integer> regionPopulation = new HashMap<String, Integer>();
-                    if (cursor != null) {
-                        while (cursor.moveToNext()) {
-
-                            String name = cursor.getString(cursor
-                                    .getColumnIndexOrThrow(JuaraDatabaseHelper.COL_ADMINISTRATIVE_NAME));
-                            int male = cursor.getInt(cursor
-                                    .getColumnIndexOrThrow(JuaraDatabaseHelper.COL_POPULATION_MALE));
-                            int female = cursor.getInt(cursor
-                                    .getColumnIndexOrThrow(JuaraDatabaseHelper.COL_POPULATION_FEMALE));
-                            int total = male + female;
-                            regionPopulation.put(name, total);
-                            // Log.d("BigMaps", name + " => " + String.valueOf(total));
-                        }
-                    }
-                    cursor.close();
-
-                    for (Map.Entry<String, ArrayList<HashMap<String, ArrayList<Double>>>> entry : app.structuredMapKecamatan
-                            .entrySet()) {
-                        int totalPopulation = -1;
-                        if (regionPopulation.containsKey(entry.getKey())) {
-                            totalPopulation = regionPopulation.get(entry.getKey());
-                        }
-
-                        new FastChoroplethTask("Jumlah Penduduk", totalPopulation).execute(entry.getValue());
-                    }
-
-                } else {
-                    for (Map.Entry<String, ArrayList<HashMap<String, ArrayList<Double>>>> entry : app.structuredMapKecamatan
-                            .entrySet()) {
-                        new FastChoroplethTask("None", entry.getKey()).execute(entry.getValue());
-                    }
-                    prefsEditor.putString("currentMapMode", "None").commit();
-                }
-
+                drawChoropleth(prefs.getString("currentMapMode", "None"));
                 prefsEditor.putBoolean("Kecamatan", true).commit();
             } else if (feature.equals("Kelurahan")) {
                 mapController.setZoom(12);
@@ -392,11 +348,11 @@ public class MapActivity extends Activity implements MapEventsReceiver {
 
                 for (Map.Entry<String, ArrayList<HashMap<String, ArrayList<Double>>>> entry : app.structuredMapKelurahan
                         .entrySet()) {
-                    new FastChoroplethTask("None", entry.getKey()).execute(entry.getValue());
+                    new FastChoroplethTask("None").execute(entry.getValue());
                 }
 
-                prefsEditor.putBoolean("Kelurahan", true).commit();
                 prefsEditor.putString("currentMapMode", "None").commit();
+                prefsEditor.putBoolean("Kelurahan", true).commit();
             } else if (feature.equals("Bike Sharing")) {
                 addUserMarker();
 
@@ -492,7 +448,7 @@ public class MapActivity extends Activity implements MapEventsReceiver {
         switch (item.getItemId()) {
 
         case R.id.action_choropleth:
-            final String[] stringArrayChoropleth = { "Jumlah Penduduk" };
+            final String[] stringArrayChoropleth = { "Jumlah Penduduk", "Luas Area", "Kepadatan Penduduk", "None" };
 
             AlertDialog.Builder choroplethBuilder = new AlertDialog.Builder(this);
             choroplethBuilder.setTitle("Pilih Peta Berdasarkan");
@@ -502,49 +458,9 @@ public class MapActivity extends Activity implements MapEventsReceiver {
                 public void onClick(DialogInterface dialog, int position) {
                     tvRegionName.setVisibility(View.INVISIBLE);
 
-                    // due to the given data only for KECAMATAN, the lines here are not possible for KELURAHAN
-                    if (stringArrayChoropleth[position].equals("Jumlah Penduduk")) {
+                    clearHighlightedRegion();
 
-                        clearHighlightedRegion();
-
-                        if (prefs.getInt("currentDrawerSelectedPosition", -1) == app.KECAMATAN) {
-                            String[] projection = { JuaraDatabaseHelper.COL_ADMINISTRATIVE_NAME,
-                                    JuaraDatabaseHelper.COL_POPULATION_MALE, JuaraDatabaseHelper.COL_POPULATION_FEMALE };
-                            Cursor cursor = getContentResolver().query(JuaraContentProvider.ADMINISTRATIVE_CONTENT_URI,
-                                    projection, null, null, null);
-
-                            HashMap<String, Integer> regionPopulation = new HashMap<String, Integer>();
-                            if (cursor != null) {
-                                while (cursor.moveToNext()) {
-
-                                    String name = cursor.getString(cursor
-                                            .getColumnIndexOrThrow(JuaraDatabaseHelper.COL_ADMINISTRATIVE_NAME));
-                                    int male = cursor.getInt(cursor
-                                            .getColumnIndexOrThrow(JuaraDatabaseHelper.COL_POPULATION_MALE));
-                                    int female = cursor.getInt(cursor
-                                            .getColumnIndexOrThrow(JuaraDatabaseHelper.COL_POPULATION_FEMALE));
-                                    int total = male + female;
-                                    regionPopulation.put(name, total);
-                                    // Log.d("BigMaps", name + " => " + String.valueOf(total));
-                                }
-                            }
-                            cursor.close();
-
-                            for (Map.Entry<String, ArrayList<HashMap<String, ArrayList<Double>>>> entry : app.structuredMapKecamatan
-                                    .entrySet()) {
-
-                                int totalPopulation = -1;
-                                if (regionPopulation.containsKey(entry.getKey())) {
-                                    totalPopulation = regionPopulation.get(entry.getKey());
-                                }
-
-                                new FastChoroplethTask("Jumlah Penduduk", totalPopulation).execute(entry.getValue());
-                            }
-
-                        }
-
-                        prefsEditor.putString("currentMapMode", "Jumlah Penduduk").commit();
-                    }
+                    drawChoropleth(stringArrayChoropleth[position]);
                 }
             });
 
@@ -611,8 +527,6 @@ public class MapActivity extends Activity implements MapEventsReceiver {
                 app.selectedMap = app.structuredMapKelurahan;
             }
 
-//            Log.d("BigMaps", String.valueOf(app.selectedMap.size()));
-
             if (app.selectedMap != null) {
                 String regionTapped = null;
 
@@ -625,8 +539,8 @@ public class MapActivity extends Activity implements MapEventsReceiver {
                     Callable<Boolean> callable = null;
                     int size = entry.getValue().size();
                     if (size == 1) {
-                        callable = new IsPointInPolygonCallable(entry.getKey(), tap,
-                                entry.getValue().get(0).get("lon"), entry.getValue().get(0).get("lat"));
+                        callable = new IsPointInPolygonCallable(tap, entry.getValue().get(0).get("lon"), entry
+                                .getValue().get(0).get("lat"));
                     } else {
                         ArrayList<Double> lonCoordinates = new ArrayList<Double>();
                         ArrayList<Double> latCoordinates = new ArrayList<Double>();
@@ -634,7 +548,7 @@ public class MapActivity extends Activity implements MapEventsReceiver {
                             lonCoordinates.addAll(entry.getValue().get(i).get("lon"));
                             latCoordinates.addAll(entry.getValue().get(i).get("lat"));
                         }
-                        callable = new IsPointInPolygonCallable(entry.getKey(), tap, lonCoordinates, latCoordinates);
+                        callable = new IsPointInPolygonCallable(tap, lonCoordinates, latCoordinates);
                     }
 
                     Future<Boolean> future = pool.submit(callable);
@@ -703,29 +617,12 @@ public class MapActivity extends Activity implements MapEventsReceiver {
         fillRegion.setStyle(Paint.Style.FILL);
         fillRegion.setColor(Color.YELLOW);
 
+        // TODO not elegant
         if (prefs.getInt("currentDrawerSelectedPosition", -1) == app.KECAMATAN) {
             app.selectedMap = app.structuredMapKecamatan;
         } else if (prefs.getInt("currentDrawerSelectedPosition", -1) == app.KELURAHAN) {
             app.selectedMap = app.structuredMapKelurahan;
         }
-
-//        Log.d("BigMaps",
-//                "currentDrawerSelectedPosition: " + String.valueOf(prefs.getInt("currentDrawerSelectedPosition", -1)));
-//        Log.d("BigMaps", "app.selectedMap.size: " + String.valueOf(app.selectedMap.size()));
-//        Log.d("BigMaps", String.valueOf(app.selectedMap.containsKey(regionName)));
-//        Log.d("BigMaps", regionName);
-//        Log.d("BigMaps", " ");
-
-//        ArrayList<String> a = new ArrayList<String>();
-//        for (Map.Entry<String, ArrayList<HashMap<String, ArrayList<Double>>>> entry : app.selectedMap.entrySet()) {
-//            a.add(entry.getKey());
-//        }
-//
-//        Collections.sort(a);
-//
-//        for (int i = 0; i < a.size(); i++) {
-//            Log.d("BigMaps", String.valueOf(i) + " " + a.get(i));
-//        }
 
         ArrayList<HashMap<String, ArrayList<Double>>> borders = app.selectedMap.get(regionName);
         for (int i = 0; i < borders.size(); i++) {
@@ -756,12 +653,10 @@ public class MapActivity extends Activity implements MapEventsReceiver {
         }
 
         prefsEditor.putString("currentRegionTapped", regionName).commit();
-        // prevRegionTapped = regionName;
     }
 
     private void clearHighlightedRegion() {
         // TODO not elegant
-        // if (prevRegionTapped != null) {
         if (!prefs.getString("currentRegionTapped", "None").equals("None")) {
             for (int i = 0; i < prevPathOverlay.size(); i++) {
                 mapView.getOverlays().remove(prevPathOverlay.get(i));
@@ -774,6 +669,7 @@ public class MapActivity extends Activity implements MapEventsReceiver {
 
     private void showRegionName(String regionName) {
         String additionalInfo = "";
+
         if (prefs.getString("currentMapMode", "None").equals("Jumlah Penduduk")
                 && prefs.getInt("currentDrawerSelectedPosition", -1) == app.KECAMATAN) {
             String[] projection = { JuaraDatabaseHelper.COL_POPULATION_MALE, JuaraDatabaseHelper.COL_POPULATION_FEMALE };
@@ -787,8 +683,38 @@ public class MapActivity extends Activity implements MapEventsReceiver {
                 int female = cursor.getInt(cursor.getColumnIndexOrThrow(JuaraDatabaseHelper.COL_POPULATION_FEMALE));
                 int total = male + female;
 
-                additionalInfo = " > " + total + " penduduk";
+                additionalInfo = " = " + total + " penduduk";
             }
+            cursor.close();
+        } else if (prefs.getString("currentMapMode", "None").equals("Luas Area")
+                && prefs.getInt("currentDrawerSelectedPosition", -1) == app.KECAMATAN) {
+            String[] projection = { JuaraDatabaseHelper.COL_LAND_AREA };
+            String selection = JuaraDatabaseHelper.COL_ADMINISTRATIVE_NAME + "='" + regionName + "'";
+            Cursor cursor = getContentResolver().query(JuaraContentProvider.ADMINISTRATIVE_CONTENT_URI, projection,
+                    selection, null, null);
+
+            if (cursor != null) {
+                cursor.moveToFirst();
+                double landArea = cursor.getDouble(cursor.getColumnIndexOrThrow(JuaraDatabaseHelper.COL_LAND_AREA));
+
+                additionalInfo = " = " + landArea + " km2";
+            }
+            cursor.close();
+        }
+        if (prefs.getString("currentMapMode", "None").equals("Kepadatan Penduduk")
+                && prefs.getInt("currentDrawerSelectedPosition", -1) == app.KECAMATAN) {
+            String[] projection = { JuaraDatabaseHelper.COL_POPULATION_DENSITY };
+            String selection = JuaraDatabaseHelper.COL_ADMINISTRATIVE_NAME + "='" + regionName + "'";
+            Cursor cursor = getContentResolver().query(JuaraContentProvider.ADMINISTRATIVE_CONTENT_URI, projection,
+                    selection, null, null);
+
+            if (cursor != null) {
+                cursor.moveToFirst();
+                int density = cursor.getInt(cursor.getColumnIndexOrThrow(JuaraDatabaseHelper.COL_POPULATION_DENSITY));
+
+                additionalInfo = " = " + density + " penduduk/km2";
+            }
+            cursor.close();
         }
 
         tvRegionName.setText(regionName + additionalInfo);
@@ -828,17 +754,21 @@ public class MapActivity extends Activity implements MapEventsReceiver {
     private class FastChoroplethTask extends AsyncTask<ArrayList, Void, Void> {
 
         private String choroplethMode;
-        private String regionName;
         private int var;
+        private double varD;
 
-        public FastChoroplethTask(String choroplethMode, String regionName) {
+        public FastChoroplethTask(String choroplethMode) {
             this.choroplethMode = choroplethMode;
-            this.regionName = regionName;
         }
 
         public FastChoroplethTask(String choroplethMode, int var) {
             this.choroplethMode = choroplethMode;
             this.var = var;
+        }
+
+        public FastChoroplethTask(String choroplethMode, double varD) {
+            this.choroplethMode = choroplethMode;
+            this.varD = varD;
         }
 
         @Override
@@ -867,6 +797,10 @@ public class MapActivity extends Activity implements MapEventsReceiver {
                     fillRegion.setColor(Color.parseColor("#00aef0"));
                 } else if (choroplethMode.equals("Jumlah Penduduk")) {
                     fillRegion.setColor(getColorPopulation(var));
+                } else if (choroplethMode.equals("Luas Area")) {
+                    fillRegion.setColor(getColorLandArea(varD));
+                } else if (choroplethMode.equals("Kepadatan Penduduk")) {
+                    fillRegion.setColor(getColorDensity(varD));
                 }
                 regionOverlay.setPaint(fillRegion);
 
@@ -905,37 +839,142 @@ public class MapActivity extends Activity implements MapEventsReceiver {
         }
     }
 
-    Handler highlightRegionHandler = new Handler() {
+    private void drawChoropleth(String mapMode) {
+        mapController.setZoom(12);
+        mapView.getOverlays().clear();
+        mapView.getOverlays().add(eventsOverlay);
+
+        if (mapMode.equals("Jumlah Penduduk")) {
+            String[] projection = { JuaraDatabaseHelper.COL_ADMINISTRATIVE_NAME,
+                    JuaraDatabaseHelper.COL_POPULATION_MALE, JuaraDatabaseHelper.COL_POPULATION_FEMALE };
+            Cursor cursor = getContentResolver().query(JuaraContentProvider.ADMINISTRATIVE_CONTENT_URI, projection,
+                    null, null, null);
+
+            HashMap<String, Integer> regionPopulation = new HashMap<String, Integer>();
+            if (cursor != null) {
+                while (cursor.moveToNext()) {
+                    String name = cursor.getString(cursor
+                            .getColumnIndexOrThrow(JuaraDatabaseHelper.COL_ADMINISTRATIVE_NAME));
+                    int male = cursor.getInt(cursor.getColumnIndexOrThrow(JuaraDatabaseHelper.COL_POPULATION_MALE));
+                    int female = cursor.getInt(cursor.getColumnIndexOrThrow(JuaraDatabaseHelper.COL_POPULATION_FEMALE));
+                    int total = male + female;
+                    regionPopulation.put(name, total);
+                }
+            }
+            cursor.close();
+
+            for (Map.Entry<String, ArrayList<HashMap<String, ArrayList<Double>>>> entry : app.structuredMapKecamatan
+                    .entrySet()) {
+                int totalPopulation = -1;
+                if (regionPopulation.containsKey(entry.getKey())) {
+                    totalPopulation = regionPopulation.get(entry.getKey());
+                }
+
+                new FastChoroplethTask("Jumlah Penduduk", totalPopulation).execute(entry.getValue());
+            }
+        } else if (mapMode.equals("Luas Area")) {
+            String[] projection = { JuaraDatabaseHelper.COL_ADMINISTRATIVE_NAME, JuaraDatabaseHelper.COL_LAND_AREA };
+            Cursor cursor = getContentResolver().query(JuaraContentProvider.ADMINISTRATIVE_CONTENT_URI, projection,
+                    null, null, null);
+
+            HashMap<String, Double> regionLandArea = new HashMap<String, Double>();
+            if (cursor != null) {
+                while (cursor.moveToNext()) {
+                    String name = cursor.getString(cursor
+                            .getColumnIndexOrThrow(JuaraDatabaseHelper.COL_ADMINISTRATIVE_NAME));
+                    double landArea = cursor.getDouble(cursor.getColumnIndexOrThrow(JuaraDatabaseHelper.COL_LAND_AREA));
+                    regionLandArea.put(name, landArea);
+                }
+            }
+            cursor.close();
+
+            for (Map.Entry<String, ArrayList<HashMap<String, ArrayList<Double>>>> entry : app.structuredMapKecamatan
+                    .entrySet()) {
+                double landArea = -1;
+                if (regionLandArea.containsKey(entry.getKey())) {
+                    landArea = regionLandArea.get(entry.getKey());
+                }
+
+                new FastChoroplethTask("Luas Area", landArea).execute(entry.getValue());
+            }
+        } else if (mapMode.equals("Kepadatan Penduduk")) {
+            String[] projection = { JuaraDatabaseHelper.COL_ADMINISTRATIVE_NAME,
+                    JuaraDatabaseHelper.COL_POPULATION_DENSITY };
+            Cursor cursor = getContentResolver().query(JuaraContentProvider.ADMINISTRATIVE_CONTENT_URI, projection,
+                    null, null, null);
+
+            HashMap<String, Double> regionDensity = new HashMap<String, Double>();
+            if (cursor != null) {
+                while (cursor.moveToNext()) {
+                    String name = cursor.getString(cursor
+                            .getColumnIndexOrThrow(JuaraDatabaseHelper.COL_ADMINISTRATIVE_NAME));
+                    double density = cursor.getDouble(cursor
+                            .getColumnIndexOrThrow(JuaraDatabaseHelper.COL_POPULATION_DENSITY));
+                    regionDensity.put(name, density);
+                }
+            }
+            cursor.close();
+
+            for (Map.Entry<String, ArrayList<HashMap<String, ArrayList<Double>>>> entry : app.structuredMapKecamatan
+                    .entrySet()) {
+                double density = -1;
+                if (regionDensity.containsKey(entry.getKey())) {
+                    density = regionDensity.get(entry.getKey());
+                }
+
+                new FastChoroplethTask("Kepadatan Penduduk", density).execute(entry.getValue());
+            }
+        }
+
+        else {
+            for (Map.Entry<String, ArrayList<HashMap<String, ArrayList<Double>>>> entry : app.structuredMapKecamatan
+                    .entrySet()) {
+                new FastChoroplethTask("None").execute(entry.getValue());
+            }
+        }
+
+        prefsEditor.putString("currentMapMode", mapMode).commit();
+    }
+
+    private final HighlightRegionHandler highlightRegionHandler = new HighlightRegionHandler(this);
+
+    private static class HighlightRegionHandler extends Handler {
+        private final WeakReference<MapActivity> mActivity;
         private int counter = 0;
+
+        public HighlightRegionHandler(MapActivity activity) {
+            this.mActivity = new WeakReference<MapActivity>(activity);
+        }
 
         @Override
         public void handleMessage(Message msg) {
+            MapActivity activity = mActivity.get();
             int increment = msg.getData().getInt("increment");
             counter += increment;
+            Log.d("BigMaps", String.valueOf(counter));
 
-            if (prefs.getInt("currentDrawerSelectedPosition", -1) == app.KECAMATAN) {
-                app.selectedMap = app.structuredMapKecamatan;
-            } else if (prefs.getInt("currentDrawerSelectedPosition", -1) == app.KELURAHAN) {
-                app.selectedMap = app.structuredMapKelurahan;
+            if (activity.prefs.getInt("currentDrawerSelectedPosition", -1) == activity.app.KECAMATAN) {
+                activity.app.selectedMap = activity.app.structuredMapKecamatan;
+            } else if (activity.prefs.getInt("currentDrawerSelectedPosition", -1) == activity.app.KELURAHAN) {
+                activity.app.selectedMap = activity.app.structuredMapKelurahan;
             }
 
-            if (counter == app.selectedMap.size() && !prefs.getString("currentRegionTapped", "None").equals("None")) {
-//                Log.d("BigMaps", "hi " + prefs.getString("currentRegionTapped", "None"));
-                highlightTappedRegion(prefs.getString("currentRegionTapped", "None"));
+            if (counter == activity.app.selectedMap.size()) {
+                activity.highlightTappedRegion(activity.prefs.getString("currentRegionTapped", "None"));
+
+                // reset
+                counter = 0;
             }
         }
-    };
+    }
 
     private class IsPointInPolygonCallable implements Callable<Boolean> {
-
         private ArrayList<Double> lonCoordinates;
         private ArrayList<Double> latCoordinates;
         private IGeoPoint tap;
-        private String regionName;
 
-        private IsPointInPolygonCallable(String regionName, IGeoPoint tap, ArrayList<Double> lonCoordinates,
+        private IsPointInPolygonCallable(IGeoPoint tap, ArrayList<Double> lonCoordinates,
                 ArrayList<Double> latCoordinates) {
-            this.regionName = regionName;
             this.tap = tap;
             this.lonCoordinates = lonCoordinates;
             this.latCoordinates = latCoordinates;
@@ -943,14 +982,10 @@ public class MapActivity extends Activity implements MapEventsReceiver {
 
         @Override
         public Boolean call() throws Exception {
-            // long threadId = Thread.currentThread().getId() % NUM_THREADS + 1;
-
             if (isPointInPolygon(tap, lonCoordinates, latCoordinates)) {
-                // Log.d("BigMaps", "threadId: " + String.valueOf(threadId) + " " + regionName + " => true");
                 return true;
             }
 
-            // Log.d("BigMaps", "threadId: " + String.valueOf(threadId) + " " + regionName + " =>false");
             return false;
         }
     }
@@ -966,7 +1001,8 @@ public class MapActivity extends Activity implements MapEventsReceiver {
             }
         }
 
-        return ((intersectCount % 2) == 1); // odd = inside, even = outside;
+        // odd = inside, even = outside;
+        return ((intersectCount % 2) == 1);
     }
 
     private boolean rayCastIntersect(IGeoPoint tap, GeoPoint vertA, GeoPoint vertB) {
@@ -977,8 +1013,9 @@ public class MapActivity extends Activity implements MapEventsReceiver {
         double pY = tap.getLatitudeE6() / 1E6;
         double pX = tap.getLongitudeE6() / 1E6;
 
+        // a and b can't both be above or below pt.y, and a or b must be east of pt.x
         if ((aY > pY && bY > pY) || (aY < pY && bY < pY) || (aX < pX && bX < pX)) {
-            return false; // a and b can't both be above or below pt.y, and a or b must be east of pt.x
+            return false;
         }
 
         double m = (aY - bY) / (aX - bX); // Rise over run
@@ -1006,6 +1043,52 @@ public class MapActivity extends Activity implements MapEventsReceiver {
             color = Color.parseColor("#F03B20");
         } else {
             color = Color.parseColor("#BD0026");
+        }
+
+        return color;
+    }
+
+    private int getColorLandArea(double landArea) {
+        int color = Color.WHITE;
+
+        // no data
+        if (landArea == -1) {
+            return Color.BLACK;
+        }
+
+        if (landArea < 2.0) {
+            color = Color.parseColor("#EDF8FB");
+        } else if (landArea < 4.0) {
+            color = Color.parseColor("#B2E2E2");
+        } else if (landArea < 6.0) {
+            color = Color.parseColor("#66C2A4");
+        } else if (landArea < 8.0) {
+            color = Color.parseColor("#2CA25F");
+        } else {
+            color = Color.parseColor("#006D2C");
+        }
+
+        return color;
+    }
+
+    private int getColorDensity(double density) {
+        int color = Color.WHITE;
+
+        // no data
+        if (density == -1) {
+            return Color.BLACK;
+        }
+
+        if (density < 5000.0) {
+            color = Color.parseColor("#F1EEF6");
+        } else if (density < 10000.0) {
+            color = Color.parseColor("#D7B5D8");
+        } else if (density < 15000.0) {
+            color = Color.parseColor("#DF65B0");
+        } else if (density < 20000.0) {
+            color = Color.parseColor("#DD1C77");
+        } else {
+            color = Color.parseColor("#980043");
         }
 
         return color;

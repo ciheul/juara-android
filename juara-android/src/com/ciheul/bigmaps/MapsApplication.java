@@ -258,8 +258,10 @@ public class MapsApplication extends Application {
                 values.put(JuaraDatabaseHelper.COL_LEADER, regionData.getString("leader"));
                 values.put(JuaraDatabaseHelper.COL_EMAIL, regionData.getString("email"));
                 values.put(JuaraDatabaseHelper.COL_TELEPHONE, regionData.getString("telephone"));
+                values.put(JuaraDatabaseHelper.COL_LAND_AREA, regionData.getString("land_area"));
                 values.put(JuaraDatabaseHelper.COL_POPULATION_FEMALE, regionData.getInt("population_female"));
                 values.put(JuaraDatabaseHelper.COL_POPULATION_MALE, regionData.getInt("population_male"));
+                values.put(JuaraDatabaseHelper.COL_POPULATION_DENSITY, regionData.getInt("population_density"));
                 values.put(JuaraDatabaseHelper.COL_CREATED_AT, regionData.getString("created_at"));
                 values.put(JuaraDatabaseHelper.COL_UPDATED_AT, regionData.getString("updated_at"));
 

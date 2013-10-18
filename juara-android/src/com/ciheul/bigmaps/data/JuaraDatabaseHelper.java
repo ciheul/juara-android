@@ -20,8 +20,10 @@ public class JuaraDatabaseHelper extends SQLiteOpenHelper {
     public static final String COL_ADDRESS = "address";
     public static final String COL_EMAIL = "email";
     public static final String COL_TELEPHONE = "telephone";
+    public static final String COL_LAND_AREA = "land_area";
     public static final String COL_POPULATION_FEMALE = "population_female";
     public static final String COL_POPULATION_MALE = "population_male";
+    public static final String COL_POPULATION_DENSITY = "population_density";
     public static final String COL_CREATED_AT = "created_at";
     public static final String COL_UPDATED_AT = "updated_at";
 
@@ -34,8 +36,10 @@ public class JuaraDatabaseHelper extends SQLiteOpenHelper {
             + COL_ADDRESS + " text not null, "
             + COL_EMAIL + " text not null, "
             + COL_TELEPHONE + " text not null, " 
+            + COL_LAND_AREA + " real not null, "
             + COL_POPULATION_FEMALE + " integer not null, " 
             + COL_POPULATION_MALE + " integer not null, "
+            + COL_POPULATION_DENSITY + " real not null, "
             + COL_CREATED_AT + " text not null, "
             + COL_UPDATED_AT + " text not null, UNIQUE(" + COL_ADMINISTRATIVE_NAME
             + ") ON CONFLICT IGNORE);";
