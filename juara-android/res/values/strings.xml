@@ -4,6 +4,8 @@
     <string name="app_name">Juara!</string>
     <string name="action_region_list">Daerah</string>
     <string name="action_choropleth">Peta</string>
+    <string name="action_search">Cari</string>
+    <string name="search_hint">Cari Kelurahan</string>
     <string name="hello_world">Hello world!</string>
     <string name="ZoomIn">Zoom In</string>
     <string name="ZoomOut">Zoom Out</string>
@@ -22,5 +24,6 @@
     <string name="splashscreen_juara">Juara</string>
 
     <color name="bandungjuara">#00aef0</color>
+    
 
 </resources>

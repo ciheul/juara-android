@@ -15,8 +15,14 @@
         android:title="@string/action_choropleth"/>
     <item
         android:id="@+id/action_region_list"
-        android:icon="@drawable/ic_menu_find"
-        android:showAsAction="ifRoom|withText"
+        android:actionViewClass="android.widget.SearchView"
+        android:icon="@drawable/action_search"
+        android:showAsAction="collapseActionView|ifRoom|withText"
         android:title="@string/action_region_list"/>
+    <item
+        android:id="@+id/action_search"
+        android:icon="@drawable/action_search"
+        android:showAsAction="ifRoom|withText"
+        android:title="@string/action_search"/>
 
 </menu>

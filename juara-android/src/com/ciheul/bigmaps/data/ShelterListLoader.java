@@ -66,7 +66,8 @@ public class ShelterListLoader extends AsyncTaskLoader<List<ShelterModel>> {
     }
 
     /**
-     * Helper method to take care of releasing resources associated with an actively loaded data set.
+     * Helper method to take care of releasing resources associated with an
+     * actively loaded data set.
      */
     private void releaseResources(List<ShelterModel> data) {
         // For a simple List, there is nothing to do. For something like a

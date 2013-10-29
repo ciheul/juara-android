@@ -9,6 +9,7 @@ import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteQueryBuilder;
 import android.net.Uri;
 import android.text.TextUtils;
+import android.util.Log;
 
 public class BigBikeContentProvider extends ContentProvider {
 
@@ -19,7 +20,7 @@ public class BigBikeContentProvider extends ContentProvider {
     private static final int IMAGES = 20;
     private static final int IMAGE_ID = 21;
 
-    private static final String AUTHORITY = "com.ciheul.bigmaps.data.BigBikeContentProvider";
+    private static final String AUTHORITY = "com.ciheul.bigbike.data.BigBikeContentProvider";
     private static final String SHELTER_BASE_PATH = "shelters";
     private static final String IMAGE_BASE_PATH = "images";
 

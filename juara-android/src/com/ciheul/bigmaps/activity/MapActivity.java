@@ -9,7 +9,6 @@ package com.ciheul.bigmaps.activity;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.Callable;
@@ -37,6 +36,11 @@ import org.osmdroid.views.overlay.PathOverlay;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.Fragment;
+import android.app.FragmentManager;
+import android.app.FragmentTransaction;
+import android.app.SearchManager;
+import android.content.Context;
 import android.content.DialogInterface;
 import android.content.SharedPreferences;
 import android.content.res.Configuration;
@@ -59,16 +63,19 @@ import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.ImageView;
 import android.widget.ListView;
+import android.widget.SearchView;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import com.ciheul.bigmaps.MapsApplication;
 import com.ciheul.bigmaps.R;
+import com.ciheul.bigmaps.activity.SearchFragment.OnSelectedSearchResultListener;
 import com.ciheul.bigmaps.data.JuaraContentProvider;
 import com.ciheul.bigmaps.data.JuaraDatabaseHelper;
 import com.ciheul.bigmaps.extend.ViaPointInfoWindow;
+import com.ciheul.bigmaps.util.FoursquareHandler;
 
-public class MapActivity extends Activity implements MapEventsReceiver {
+public class MapActivity extends Activity implements MapEventsReceiver, OnSelectedSearchResultListener {
 
     private MapsApplication app;
 
@@ -97,6 +104,7 @@ public class MapActivity extends Activity implements MapEventsReceiver {
     private TextView tvRegionName;
     private ImageView imgZoomIn;
     private ImageView imgZoomOut;
+    private SearchView searchView;
     // private Button btnTrackCurrentUser;
 
     private ArrayList<PathOverlay> prevPathOverlay;
@@ -108,17 +116,21 @@ public class MapActivity extends Activity implements MapEventsReceiver {
     // the number is decided empirically. the range between 8-12 gives optimal result
     private final static int NUM_THREADS = 9;
 
+    private FoursquareHandler foursquareHandler;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_map);
+
+        Log.d("BigMaps", "MapsActivity: onCreate");
 
         app = (MapsApplication) getApplication();
 
         prefs = getPreferences(MODE_PRIVATE);
         prefsEditor = prefs.edit();
 
-        Log.d("BigMaps", "MapsActivity: onCreate");
+        foursquareHandler = new FoursquareHandler();
 
         /***********************/
         /** Navigation Drawer **/
@@ -266,13 +278,6 @@ public class MapActivity extends Activity implements MapEventsReceiver {
     }
 
     @Override
-    public boolean onCreateOptionsMenu(Menu menu) {
-        // Inflate the menu; this adds items to the action bar if it is present.
-        getMenuInflater().inflate(R.menu.map, menu);
-        return true;
-    }
-
-    @Override
     public void onBackPressed() {
         super.onBackPressed();
         Log.d("BigMaps", "MapsActivity: onBackPressed");
@@ -415,29 +420,58 @@ public class MapActivity extends Activity implements MapEventsReceiver {
     /* Called whenever we call invalidateOptionsMenu() */
     @Override
     public boolean onPrepareOptionsMenu(Menu menu) {
+        Log.d("BigMaps", "onPrepareOptionsMenu");
         // If the nav drawer is open, hide action items related to the content view or the drawer is not selected
         boolean drawerOpen = drawerLayout.isDrawerOpen(drawerList);
 
         menu.findItem(R.id.action_choropleth).setVisible(!drawerOpen);
         menu.findItem(R.id.action_region_list).setVisible(!drawerOpen);
+        menu.findItem(R.id.action_search).setVisible(!drawerOpen);
 
         if (this.title.equals(getTitle())) {
             menu.findItem(R.id.action_choropleth).setVisible(false);
             menu.findItem(R.id.action_region_list).setVisible(false);
+            menu.findItem(R.id.action_search).setVisible(true);
         } else if (prefs.getInt("currentDrawerSelectedPosition", -1) == app.KECAMATAN) {
             menu.findItem(R.id.action_choropleth).setVisible(true);
             menu.findItem(R.id.action_region_list).setVisible(true);
+            menu.findItem(R.id.action_search).setVisible(false);
         } else if (prefs.getInt("currentDrawerSelectedPosition", -1) == app.KELURAHAN) {
             menu.findItem(R.id.action_choropleth).setVisible(false);
             menu.findItem(R.id.action_region_list).setVisible(true);
+            menu.findItem(R.id.action_search).setVisible(false);
         }
+
+        if (prefs.getBoolean("isSearchViewExpanded", false)) {
+            menu.findItem(R.id.action_region_list).collapseActionView();
+            prefsEditor.putBoolean("isSearchViewExpanded", false).commit();
+        }
+        // if (menu.findItem(R.id.action_region_list).isActionViewExpanded()) {
+        // menu.findItem(R.id.action_region_list).collapseActionView();
+        // }
 
         return super.onPrepareOptionsMenu(menu);
     }
 
     @Override
-    public boolean onOptionsItemSelected(MenuItem item) {
+    public boolean onCreateOptionsMenu(Menu menu) {
+        Log.d("BigMaps", "onCreateOptionsMenu");
+        // Inflate the menu; this adds items to the action bar if it is present.
+        getMenuInflater().inflate(R.menu.map, menu);
 
+        if (searchView == null) {
+            Log.d("BigMaps", "searchView is null");
+
+            searchView = (SearchView) menu.findItem(R.id.action_region_list).getActionView();
+            SearchManager searchManager = (SearchManager) getSystemService(Context.SEARCH_SERVICE);
+            searchView.setSearchableInfo(searchManager.getSearchableInfo(getComponentName()));
+        }
+
+        return true;
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(MenuItem item) {
         // The action bar home/up action should open or close the drawer.
         // ActionBarDrawerToggle will take care of this.
         if (drawerToggle.onOptionsItemSelected(item)) {
@@ -470,37 +504,28 @@ public class MapActivity extends Activity implements MapEventsReceiver {
             return true;
 
         case R.id.action_region_list:
-            AlertDialog.Builder regionBuilder = new AlertDialog.Builder(this);
+            FragmentManager fm = getFragmentManager();
 
-            if (prefs.getInt("currentDrawerSelectedPosition", -1) == app.KECAMATAN) {
-                app.selectedMap = app.structuredMapKecamatan;
-                regionBuilder.setTitle("Pilih Kecamatan");
-            } else if (prefs.getInt("currentDrawerSelectedPosition", -1) == app.KELURAHAN) {
-                app.selectedMap = app.structuredMapKelurahan;
-                regionBuilder.setTitle("Pilih Kelurahan");
-            }
-
-            ArrayList<String> stringArrayList = new ArrayList<String>();
-            for (Map.Entry<String, ArrayList<HashMap<String, ArrayList<Double>>>> entry : app.selectedMap.entrySet()) {
-                stringArrayList.add(entry.getKey());
-            }
-            Collections.sort(stringArrayList);
-            final String[] stringArray = stringArrayList.toArray(new String[stringArrayList.size()]);
-
-            regionBuilder.setItems(stringArray, new DialogInterface.OnClickListener() {
-                @Override
-                public void onClick(DialogInterface dialog, int position) {
-                    clearHighlightedRegion();
-                    highlightTappedRegion(stringArray[position]);
-                    showRegionName(stringArray[position]);
-                }
-            });
-
-            AlertDialog regionDialog = regionBuilder.create();
-            regionDialog.show();
-
+            // if (fm.findFragmentById(android.R.id.content) == null) {
+            SearchFragment fragment = new SearchFragment();
+            FragmentTransaction transaction = fm.beginTransaction();
+            transaction.add(android.R.id.content, fragment);
+            transaction.addToBackStack(null);
+            transaction.commit();
+            Log.d("BigMaps", "fm. content. null");
+            // } else {
+            // Log.d("BigMaps", "fm. content. not null");
+            // }
             return true;
 
+        case R.id.action_search:
+            HashMap<String, Object> params = new HashMap<String, Object>();
+            double lon = mapView.getMapCenter().getLongitudeE6() / 1E6;
+            double lat = mapView.getMapCenter().getLatitudeE6() / 1E6;
+            String latLon = lat + "," + lon;
+            params.put("ll", latLon);
+            foursquareHandler.searchVenue(params);
+            Toast.makeText(this, "searching venues...", Toast.LENGTH_SHORT).show();
         default:
             return super.onOptionsItemSelected(item);
         }
@@ -951,7 +976,7 @@ public class MapActivity extends Activity implements MapEventsReceiver {
             MapActivity activity = mActivity.get();
             int increment = msg.getData().getInt("increment");
             counter += increment;
-            Log.d("BigMaps", String.valueOf(counter));
+            // Log.d("BigMaps", String.valueOf(counter));
 
             if (activity.prefs.getInt("currentDrawerSelectedPosition", -1) == activity.app.KECAMATAN) {
                 activity.app.selectedMap = activity.app.structuredMapKecamatan;
@@ -1092,5 +1117,17 @@ public class MapActivity extends Activity implements MapEventsReceiver {
         }
 
         return color;
+    }
+
+    @Override
+    public void onRegionSelected(String regionName, Fragment fragment) {
+        Toast.makeText(this, regionName, Toast.LENGTH_SHORT).show();
+        FragmentManager fm = getFragmentManager();
+        FragmentTransaction transaction = fm.beginTransaction();
+        transaction.remove(fragment).commit();
+
+        clearHighlightedRegion();
+        showRegionName(regionName);
+        highlightTappedRegion(regionName);
     }
 }
